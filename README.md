@@ -25,6 +25,20 @@ outputs the log
 {"level":"info","timestamp":"2024-04-23T06:33:59.101Z","service":"comet","fn":"main","process":1,"msg":"application starting..."}
 ```
 
+Additionally, level specific log functions can be created:
+
+```gleam
+  let assert comet.LevelLoggerSet(trace, debug, info, warn, err) =
+    comet.builder()
+    |> comet.timestamp
+    |> comet.attributes([comet.String("service", "comet")])
+    |> comet.log_level(Info)
+    |> comet.logger
+    |> comet.levels
+  debug("log settings", [String("min_log_level", "info")])
+  info("✨ application starting...", [String("fn", "main"), Int("process", 1)])
+```
+
 Further documentation can be found at <https://hexdocs.pm/comet>.
 
 ## Development

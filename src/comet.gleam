@@ -76,6 +76,12 @@ pub fn level_text(next: Handler, func: LevelTextFn) -> Handler {
   }
 }
 
+pub fn attributes(next: Handler, attributes: List(Attribute)) -> Handler {
+  fn(entry: Entry) -> Option(Entry) {
+    next(Entry(..entry, attributes: list.append(attributes, entry.attributes)))
+  }
+}
+
 pub fn log_level(next: Handler, level: Level) -> Handler {
   fn(entry: Entry) -> Option(Entry) {
     case level_priority(entry.level) >= level_priority(level) {

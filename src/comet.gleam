@@ -182,6 +182,53 @@ fn attribute_to_json(attr: Attribute) -> #(String, json.Json) {
   }
 }
 
+type LevelLogger =
+  fn(String, List(Attribute)) -> Nil
+
+pub fn trace(log: Logger) -> LevelLogger {
+  fn(msg: String, attributes: List(Attribute)) -> Nil {
+    log(Trace, msg, attributes)
+  }
+}
+
+pub fn debug(log: Logger) -> LevelLogger {
+  fn(msg: String, attributes: List(Attribute)) -> Nil {
+    log(Debug, msg, attributes)
+  }
+}
+
+pub fn info(log: Logger) -> LevelLogger {
+  fn(msg: String, attributes: List(Attribute)) -> Nil {
+    log(Info, msg, attributes)
+  }
+}
+
+pub fn warn(log: Logger) -> LevelLogger {
+  fn(msg: String, attributes: List(Attribute)) -> Nil {
+    log(Warn, msg, attributes)
+  }
+}
+
+pub fn error(log: Logger) -> LevelLogger {
+  fn(msg: String, attributes: List(Attribute)) -> Nil {
+    log(Error, msg, attributes)
+  }
+}
+
+pub type LevelLoggerSet {
+  LevelLoggerSet(
+    trace: LevelLogger,
+    debug: LevelLogger,
+    info: LevelLogger,
+    warn: LevelLogger,
+    error: LevelLogger,
+  )
+}
+
+pub fn levels(log: Logger) -> LevelLoggerSet {
+  LevelLoggerSet(trace(log), debug(log), info(log), warn(log), error(log))
+}
+
 pub fn write_output(entry: String, level: Level) {
   case level {
     Trace -> do_println_trace(entry)

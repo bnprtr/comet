@@ -117,3 +117,29 @@ pub fn timestamp_log_test() {
     _ -> should.fail()
   }
 }
+
+pub fn level_log_test() {
+  let assert Ok(output) = actor.start([], log_aggregator)
+  let assert comet.LevelLoggerSet(trace, debug, info, warn, err) =
+    comet.builder()
+    |> comet.output(fn(msg: String, level: comet.Level) -> Nil {
+      process.send(output, Entry(msg))
+      Nil
+    })
+    |> comet.attributes([comet.String("service", "comet")])
+    |> comet.logger
+    |> comet.levels
+  trace("Trace", [])
+  debug("Debug", [])
+  info("Info", [])
+  warn("Warn", [])
+  err("Error", [])
+
+  should.equal(process.call(output, Retrieve, 10), [
+    "{\"level\":\"trace\",\"service\":\"comet\",\"msg\":\"Trace\"}",
+    "{\"level\":\"debug\",\"service\":\"comet\",\"msg\":\"Debug\"}",
+    "{\"level\":\"info\",\"service\":\"comet\",\"msg\":\"Info\"}",
+    "{\"level\":\"warn\",\"service\":\"comet\",\"msg\":\"Warn\"}",
+    "{\"level\":\"error\",\"service\":\"comet\",\"msg\":\"Error\"}",
+  ])
+}

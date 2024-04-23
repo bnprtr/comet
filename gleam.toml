@@ -1,6 +1,6 @@
 name = "comet"
 version = "1.0.0"
-description = "☄ Leave a gleaming trail of application logs"
+description = "Create a gleaming trail of application logs"
 licences = ["Apache-2.0"]
 repository = { type = "github", user = "bnprtr", repo = "comet" }
 
@@ -8,6 +8,8 @@ repository = { type = "github", user = "bnprtr", repo = "comet" }
 gleam_stdlib = ">= 0.34.0 and < 2.0.0"
 gleam_json = ">= 1.0.0 and < 2.0.0"
 birl = ">= 1.6.1 and < 2.0.0"
+gleam_erlang = ">= 0.25.0 and < 1.0.0"
+gleam_otp = ">= 0.10.0 and < 1.0.0"
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

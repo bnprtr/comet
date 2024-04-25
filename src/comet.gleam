@@ -69,15 +69,15 @@ pub fn new() -> Context(t) {
 @external(javascript, "./logs.mjs", "set_config")
 pub fn configure(ctx: Context(t)) -> Nil
 
-pub fn set_level_text(ctx: Context(t), func: fn(Level) -> String) -> Context(t) {
+pub fn with_level_text(ctx: Context(t), func: fn(Level) -> String) -> Context(t) {
   Context(..ctx, level_text: func)
 }
 
-pub fn set_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
+pub fn with_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
   Context(..ctx, formatter: formatter)
 }
 
-pub fn level(ctx: Context(t), level: Level) -> Context(t) {
+pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
 }
 
@@ -102,22 +102,30 @@ pub type Entry(t) {
 
 @target(erlang)
 type Formatter(t) =
-  fn(Entry(t)) -> List(String)
+  fn(Context(t), Entry(t)) -> List(String)
 
 @target(javascript)
 type Formatter(t) =
-  fn(Entry(t)) -> String
+  fn(Context(t), Entry(t)) -> String
 
 @target(erlang)
-pub fn text_formatter(entry: Entry(t)) -> List(String) {
+pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> List(String) {
   let Entry(level, msg, md) = entry
-  ["level: ", level_text(level), " | ", string.inspect(md), " | ", msg, "\n"]
+  [
+    "level: ",
+    ctx.level_text(level),
+    " | ",
+    string.inspect(md),
+    " | ",
+    msg,
+    "\n",
+  ]
 }
 
 @target(javascript)
-pub fn text_formatter(entry: Entry(t)) -> String {
+pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
   let Entry(level, msg, md) = entry
-  ["level:", level_text(level), "|", string.inspect(md), "|", msg]
+  ["level:", ctx.level_text(level), "|", string.inspect(md), "|", msg]
   |> string.join(" ")
 }
 
@@ -127,7 +135,7 @@ pub fn format(
   config: List(Dict(Atom, Context(t))),
 ) -> List(String) {
   let ctx = extract_context_from_config(config)
-  ctx.formatter(extract_entry_from_erlang_log_event(log))
+  ctx.formatter(ctx, extract_entry_from_erlang_log_event(log))
 }
 
 @target(erlang)

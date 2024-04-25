@@ -5,22 +5,17 @@ export function set_config(configuration) {
 }
 
 export function debug(level, metadata, message) {
- console.debug(config.formatter({level, message, metadata}))
+ console.debug(config.formatter(config, {level, message, metadata}))
 }
 
 export function info(level, metadata, message) {
- console.info(config.formatter({level, message, metadata}))
+ console.info(config.formatter(config, {level, message, metadata}))
 }
 
 export function warning(level, metadata, message) {
- console.warn(config.formatter({level, message, metadata}))
+ console.warn(config.formatter(config, {level, message, metadata}))
 }
 
 export function error(level, metadata, message) {
- console.error(config.formatter({level, message, metadata}))
+ console.error(config.formatter(config, {level, message, metadata}))
 }
-
-// export function insert_attribute(metadata, key, value) {
-//   metadata[key] = value
-//   return metadata
-// }

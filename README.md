@@ -9,7 +9,7 @@
 In Progress:
 - Logging interface: Proposed
 - Erlang logging operational
-- Javascript logging currently broken
+- Javascript logging operational
 
 Not Started:
 - Log Filters

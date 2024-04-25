@@ -8,11 +8,11 @@ error(Metadata, Message) -> log(error, Message, Metadata).
 log(Level, Message, Metadata) -> logger:log(Level, Message, Metadata).
 
 configure(Config) ->
-    {_Name, _LevelText, _Formatter, Filters, MinLevel} = Config,
+    {_Name, _LevelText, _Formatter,  MinLevel} = Config,
     ok = logger:update_primary_config(#{
         level => MinLevel,
         filter_default => log,
-        filters => Filters,
+        filters => [],
         metadata => #{}
             }),
     ok = logger:update_handler_config(default, #{

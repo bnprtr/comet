@@ -1,15 +1,5 @@
-import birl
-import comet
-import gleam/dict
-import gleam/dynamic
-import gleam/erlang/process.{type Subject}
-import gleam/io
-import gleam/json
-import gleam/list
-import gleam/option.{type Option, None, Some}
-import gleam/otp/actor
+import comet.{attribute, debug, error, info, warning}
 import gleeunit
-import gleeunit/should
 
 pub fn main() {
   gleeunit.main()
@@ -20,17 +10,39 @@ type Attribute {
   Latency(Float)
   StatusCode(Int)
   Success(Bool)
+  Err(String)
 }
 
+// todo: tests were removed since log handlers are not yet implemented.
 pub fn metadata_test() {
   comet.new()
   |> comet.level(comet.Debug)
-  |> comet.with_attribute(Service("comet"))
   |> comet.configure()
 
-  comet.log()
-  |> comet.attribute(Latency(24.2))
-  |> comet.attribute(StatusCode(200))
-  |> comet.attribute(Success(True))
-  |> comet.info("help!")
+  let log =
+    comet.log()
+    |> attribute(Service("comet"))
+
+  log
+  |> debug("did this work? hi mom")
+
+  log
+  |> attribute(Latency(24.2))
+  |> attribute(StatusCode(200))
+  |> attribute(Success(True))
+  |> info("access log")
+
+  log
+  |> attribute(Latency(102.2))
+  |> attribute(StatusCode(400))
+  |> attribute(Err("input not accepted"))
+  |> attribute(Success(False))
+  |> warning("access log")
+
+  log
+  |> attribute(Latency(402.0))
+  |> attribute(StatusCode(500))
+  |> attribute(Err("database connection error"))
+  |> attribute(Success(False))
+  |> error("access log")
 }

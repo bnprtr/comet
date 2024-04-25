@@ -1,13 +1,10 @@
 //// Create a gleaming trail of application logs. 
 
-import birl
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/atom.{type Atom}
 import gleam/io
-import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
@@ -47,22 +44,27 @@ pub opaque type Context(t) {
     formatter: Formatter(t),
     filters: Filters,
     min_level: Level,
-    metadata: Metadata(t),
   )
-  // default_handler: Option(Handler),
-  // handlers: List(Handler),
+}
+
+pub type AttributeSet(t) {
+
+  // attributes added to the erlang metadata directly
+  Attribute(t)
+
+  // The erlang logger sends the metadata to formatters as a Dict(Atom, Dynamic)
+  // which puts way too much stress on the client developer to properly decode their
+  // attributes in a propably unsafe way. Instead, we insert a metadata entry into the
+  // dictionary so that the Erlang logger can properly filter on the metadata but
+  // we instead stick all of the metadata into a list of a known atom. Since the
+  // list is of type T when we unsafe_coerce, the client developer can simply
+  // use pattern matching to handle the metadata easily. CometAttributeList is
+  // the internal metadata entry used for storing all attributes.
+  CometAttributeList(List(t))
 }
 
 pub fn new() -> Context(t) {
-  Context(
-    level_text,
-    text_formatter,
-    [],
-    Info,
-    new_metadata(),
-    // default_handler(),
-  // [],
-  )
+  Context(level_text, text_formatter, [], Info)
 }
 
 @external(erlang, "comet_ffi", "configure")
@@ -81,62 +83,8 @@ pub fn level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
 }
 
-pub fn with_attribute(ctx: Context(t), attr: t) -> Context(t) {
-  Context(..ctx, metadata: attribute(ctx.metadata, attr))
-}
-
-// @target(erlang)
-// pub type Handler(t) {
-//   Handler(
-//     module: Atom,
-//     min_level: Level,
-//     formatter_module: Atom,
-//     filters: List(ErlangFilter),
-//     metadata: Metadata(t),
-//   )
-// }
-
-// @target(erlang)
-// fn default_handler() -> Option(Handler) {
-//   None
-// }
-
-// @target(javascript)
-// pub type Handler {
-//   Handler(
-//     name: String,
-//     min_level: Level,
-//     formatter: Formatter,
-//     filters: Filters,
-//     metadata: Metadata,
-//   )
-// }
-
-// @target(javascript)
-// fn default_handler() {
-//   None
-// }
-
-// @target(erlang)
-// pub type HandlerFn =
-//   fn(Dict(Atom, Dynamic)) -> Nil
-
-// @target(javascript)
-// pub type HandlerFn =
-//   fn(Entry) -> Nil
-
-// @target(javascript)
-// pub fn add_handler(ctx: Context(t), handler: Handler) -> Context(t) {
-//   Context(..ctx, handlers: list.append(ctx.handlers, [handler]))
-// }
-
 // Metadata ---------------------------------------------------------------------------
 
-@target(erlang)
-pub type Metadata(t) =
-  List(#(Atom, t))
-
-@target(javascript)
 pub type Metadata(t) =
   List(t)
 
@@ -144,49 +92,20 @@ fn new_metadata() -> Metadata(t) {
   []
 }
 
-// pub fn json_formatter(
-//   level: Level,
-//   msg: String,
-//   attributes: List(Attribute),
-// ) -> String {
-//   list.map(
-//     list.concat([
-//       [String("level", get_level_text(level))],
-//       attributes,
-//       [String("msg", msg)],
-//     ]),
-//     attribute_to_json,
-//   )
-//   |> json.object
-//   |> json.to_string
-// }
-
 pub fn attribute(md: Metadata(t), attribute: t) -> Metadata(t) {
-  list.prepend(md, #(attribute_atom(attribute), attribute))
-}
-
-@external(erlang, "comet_ffi", "get_attribute_atom")
-fn get_attribute_atom_erlang(attribute: t) -> Atom
-
-fn attribute_atom(attribute: t) -> Atom {
-  let value = get_attribute_atom_erlang(attribute)
-  io.println_error(atom.to_string(value))
-  value
+  list.prepend(md, attribute)
 }
 
 // Filters ---------------------------------------------------------------------------
 // TODO: 
 //    - fix erlang filters..or try to understand them better and reimplement the filtering system 
-//    - implement javascript s
+//    - implement javascript
 
 pub type Entry(t) {
   Entry(level: Level, message: String, metadata: Metadata(t))
 }
 
-type Filter(t) =
-  fn(Entry(t)) -> Option(Entry(t))
-
-pub type ErlangFilter
+type ErlangFilter
 
 @target(erlang)
 type Filters =
@@ -224,19 +143,6 @@ pub fn add_allow_metadata_filter(
   )
 }
 
-// @target(erlang)
-// pub fn add_allow_metadata_filter_to_handler(
-//   handler: Handler,
-//   keys: List(String),
-// ) -> Handler {
-//   Handler(
-//     ..handler,
-//     filters: list.append(handler.filters, [
-//       add_allow_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
-//     ]),
-//   )
-// }
-
 @target(erlang)
 pub fn add_deny_metadata_filter(
   ctx: Context(t),
@@ -250,19 +156,6 @@ pub fn add_deny_metadata_filter(
   )
 }
 
-// @target(erlang)
-// pub fn add_deny_metadata_filter_to_handler(
-//   handler: Handler,
-//   keys: List(String),
-// ) -> Handler {
-//   Handler(
-//     ..handler,
-//     filters: list.append(handler.filters, [
-//       add_deny_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
-//     ]),
-//   )
-// }
-
 // Formatting ---------------------------------------------------------------------------
 
 type Formatter(t) =
@@ -271,19 +164,7 @@ type Formatter(t) =
 @target(erlang)
 pub fn text_formatter(entry: Entry(t)) -> List(String) {
   let Entry(level, msg, md) = entry
-  ["level: ", level_text(level), " | ", msg, " | ", string.inspect(md)]
-}
-
-@target(erlang)
-pub fn json_formatter(entry: Entry(t)) -> List(String) {
-  todo
-  // let Entry(level, msg, md) = entry
-  // md
-  // |> dict.insert(key_name("level"), level_text(level))
-  // |> dict.insert(key_name("msg"), msg)
-  // let fields = [#("level", json.string(level_text(level)), #("msg", json.string(msg)))]
-  // |> list.append()
-  // json.object()
+  ["level: ", level_text(level), " | ", string.inspect(md), " | ", msg, "\n"]
 }
 
 @target(javascript)
@@ -298,15 +179,21 @@ pub fn text_formatter(entry: Entry(t)) -> #(String, List(Dynamic)) {
 @target(erlang)
 pub fn format(
   log: Dict(Atom, Dynamic),
-  config: List(#(Atom, Context(t))),
+  config: List(Dict(Atom, Context(t))),
 ) -> List(String) {
   let ctx = extract_context_from_config(config)
   ctx.formatter(extract_entry_from_erlang_log_event(log))
 }
 
-fn extract_context_from_config(config: List(#(Atom, Context(t)))) -> Context(t) {
+fn extract_context_from_config(
+  config: List(Dict(Atom, Context(t))),
+) -> Context(t) {
   case list.first(config) {
-    Ok(#(_, v)) -> v
+    Ok(d) ->
+      case dict.get(d, key_name("config")) {
+        Ok(ctx) -> ctx
+        _ -> new()
+      }
     _ -> new()
   }
 }
@@ -315,19 +202,30 @@ fn extract_context_from_config(config: List(#(Atom, Context(t)))) -> Context(t) 
 fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry(t) {
   let level: Level = extract_level_from_erlang_log(log)
   let msg: String = extract_msg_from_erlang_log(log)
-  let metadata: Metadata(t) = extract_metadata_from_erlang_log(log)
+  let metadata = extract_metadata_from_erlang_log(log)
   Entry(level, msg, metadata)
 }
 
+// this is some nasty stuff to extract the attributes from the erlang logger data.
+// maybe there is a better way to do this.
 @target(erlang)
-fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> Metadata(t) {
+fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> List(t) {
   case dict.get(log, key_name("meta")) {
     Ok(value) ->
-      case dynamic.unsafe_coerce(value) {
-        Ok(md) -> md
-        _ -> new_metadata()
+      case dynamic.dict(atom.from_dynamic, dynamic.dynamic)(value) {
+        Ok(md) ->
+          case dict.get(md, key_name(comet_metadata_stash_key)) {
+            Ok(data) ->
+              case dynamic.unsafe_coerce(data) {
+                CometAttributeList(data) -> data
+                _ -> []
+              }
+            _ -> []
+          }
+
+        _ -> []
       }
-    _ -> new_metadata()
+    _ -> []
   }
 }
 
@@ -345,6 +243,9 @@ fn decode_level(value: Dynamic) -> Level {
     Ok(level) -> {
       case atom.to_string(level) {
         "debug" -> Debug
+        "info" -> Info
+        "warning" -> Warning
+        "error" -> Err
         _ -> Err
       }
     }
@@ -369,19 +270,6 @@ fn extract_msg_from_erlang_log(log: Dict(Atom, Dynamic)) -> String {
   }
 }
 
-// @target(erlang)
-// fn decode_level(value: Dynamic) -> Level {
-//   case atom.from_dynamic(value) {
-//     Ok(level) -> {
-//       case atom.to_string(level) {
-//         "debug" -> Debug
-//         _ -> Err
-//       }
-//     }
-//     _ -> Err
-//   }
-// }
-
 @target(erlang)
 fn key_name(name: String) -> Atom {
   case atom.from_string(name) {
@@ -401,18 +289,82 @@ pub fn log() -> Metadata(t) {
   new_metadata()
 }
 
+@target(erlang)
+pub fn debug(md: Metadata(t), msg: String) -> Nil {
+  debug_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
 @external(erlang, "comet_ffi", "debug")
+fn debug_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
 @external(javascript, "./logs.mjs", "debug")
 pub fn debug(md: Metadata(t), msg: String) -> Nil
 
+@target(erlang)
+pub fn info(md: Metadata(t), msg: String) -> Nil {
+  info_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
 @external(erlang, "comet_ffi", "info")
+fn info_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
 @external(javascript, "./logs.mjs", "info")
 pub fn info(md: Metadata(t), msg: String) -> Nil
 
+@target(erlang)
+pub fn warning(md: Metadata(t), msg: String) -> Nil {
+  warning_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
 @external(erlang, "comet_ffi", "warning")
+fn warning_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
 @external(javascript, "./logs.mjs", "warning")
 pub fn warning(md: Metadata(t), msg: String) -> Nil
 
+@target(erlang)
+pub fn error(md: Metadata(t), msg: String) -> Nil {
+  error_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
 @external(erlang, "comet_ffi", "error")
+fn error_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
 @external(javascript, "./logs.mjs", "error")
 pub fn error(md: Metadata(t), msg: String) -> Nil
+
+// Erlang Interface -------------------------------------------------------------------
+
+const comet_metadata_stash_key = "comet metadata stash key"
+
+// TODO: performance optiziation in erlang would be to build the Dict(Atom, AttribeSet)
+// while each attribute is added and store it in the Metadata. This would prevent rebuilding
+// of metadata entries and atom conversions for log builders that are cached with
+// default attributes in them
+fn prepare_metadata_for_erlang(md: Metadata(t)) -> Dict(Atom, AttributeSet(t)) {
+  let key = key_name(comet_metadata_stash_key)
+  md
+  |> convert_metadata_to_atom_dict(dict.new())
+  |> dict.insert(key, CometAttributeList(md))
+}
+
+fn convert_metadata_to_atom_dict(
+  md: Metadata(t),
+  data: Dict(Atom, AttributeSet(t)),
+) -> Dict(Atom, AttributeSet(t)) {
+  case md {
+    [] -> data
+    [first, ..rest] ->
+      convert_metadata_to_atom_dict(
+        rest,
+        dict.insert(data, attribute_atom(first), Attribute(first)),
+      )
+  }
+}
+
+@external(erlang, "comet_ffi", "get_attribute_atom")
+fn attribute_atom(attribute: t) -> Atom

@@ -25,11 +25,12 @@ type Attribute {
 pub fn metadata_test() {
   comet.new()
   |> comet.level(comet.Debug)
-  |> comet.with_attribute(STR("service", "comet"))
+  |> comet.with_attribute(Service("comet"))
   |> comet.configure()
 
   comet.log()
-  |> comet.attribute(STR("lyric", "i'm feeling doooooown"))
-  |> comet.attribute(STR("time", birl.to_iso8601(birl.utc_now())))
+  |> comet.attribute(Latency(24.2))
+  |> comet.attribute(StatusCode(200))
+  |> comet.attribute(Success(True))
   |> comet.info("help!")
 }

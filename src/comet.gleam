@@ -41,109 +41,107 @@ pub fn level_priority(level: Level) -> Int {
 
 // Context ---------------------------------------------------------------------------
 
-pub opaque type Context {
+pub opaque type Context(t) {
   Context(
     level_text: fn(Level) -> String,
-    formatter: Formatter,
+    formatter: Formatter(t),
     filters: Filters,
     min_level: Level,
-    metadata: Metadata,
-    default_handler: Option(Handler),
-    handlers: List(Handler),
+    metadata: Metadata(t),
   )
+  // default_handler: Option(Handler),
+  // handlers: List(Handler),
 }
 
-pub fn new() -> Context {
+pub fn new() -> Context(t) {
   Context(
     level_text,
     text_formatter,
     [],
     Info,
     new_metadata(),
-    default_handler(),
-    [],
+    // default_handler(),
+  // [],
   )
 }
 
 @external(erlang, "comet_ffi", "configure")
 @external(javascript, "./logs.mjs", "set_config")
-pub fn configure(ctx: Context) -> Nil
+pub fn configure(ctx: Context(t)) -> Nil
 
-pub fn set_level_text(ctx: Context, func: fn(Level) -> String) -> Context {
+pub fn set_level_text(ctx: Context(t), func: fn(Level) -> String) -> Context(t) {
   Context(..ctx, level_text: func)
 }
 
-pub fn set_formatter(ctx: Context, formatter: Formatter) -> Context {
+pub fn set_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
   Context(..ctx, formatter: formatter)
 }
 
-pub fn level(ctx: Context, level: Level) -> Context {
+pub fn level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
 }
 
-pub fn with_attribute(ctx: Context, attr: Attribute) -> Context {
+pub fn with_attribute(ctx: Context(t), attr: t) -> Context(t) {
   Context(..ctx, metadata: attribute(ctx.metadata, attr))
 }
 
-@target(erlang)
-pub type Handler {
-  Handler(
-    module: Atom,
-    min_level: Level,
-    formatter_module: Atom,
-    filters: List(ErlangFilter),
-    metadata: Metadata,
-  )
-}
+// @target(erlang)
+// pub type Handler(t) {
+//   Handler(
+//     module: Atom,
+//     min_level: Level,
+//     formatter_module: Atom,
+//     filters: List(ErlangFilter),
+//     metadata: Metadata(t),
+//   )
+// }
 
-@target(erlang)
-fn default_handler() -> Option(Handler) {
-  None
-}
+// @target(erlang)
+// fn default_handler() -> Option(Handler) {
+//   None
+// }
 
-@target(javascript)
-pub type Handler {
-  Handler(
-    name: String,
-    min_level: Level,
-    formatter: Formatter,
-    filters: Filters,
-    metadata: Metadata,
-  )
-}
+// @target(javascript)
+// pub type Handler {
+//   Handler(
+//     name: String,
+//     min_level: Level,
+//     formatter: Formatter,
+//     filters: Filters,
+//     metadata: Metadata,
+//   )
+// }
 
-@target(javascript)
-fn default_handler() {
-  None
-}
+// @target(javascript)
+// fn default_handler() {
+//   None
+// }
 
-@target(erlang)
-pub type HandlerFn =
-  fn(Dict(Atom, Dynamic)) -> Nil
+// @target(erlang)
+// pub type HandlerFn =
+//   fn(Dict(Atom, Dynamic)) -> Nil
 
-@target(javascript)
-pub type HandlerFn =
-  fn(Entry) -> Nil
+// @target(javascript)
+// pub type HandlerFn =
+//   fn(Entry) -> Nil
 
-@target(javascript)
-pub fn add_handler(ctx: Context, handler: Handler) -> Context {
-  Context(..ctx, handlers: list.append(ctx.handlers, [handler]))
-}
+// @target(javascript)
+// pub fn add_handler(ctx: Context(t), handler: Handler) -> Context(t) {
+//   Context(..ctx, handlers: list.append(ctx.handlers, [handler]))
+// }
 
 // Metadata ---------------------------------------------------------------------------
 
-pub type Metadata =
-  List(Attribute)
+@target(erlang)
+pub type Metadata(t) =
+  List(#(Atom, t))
 
-fn new_metadata() -> Metadata {
+@target(javascript)
+pub type Metadata(t) =
+  List(t)
+
+fn new_metadata() -> Metadata(t) {
   []
-}
-
-pub type Attribute {
-  STR(name: String, value: String)
-  INT(name: String, value: Int)
-  FLOAT(name: String, value: Float)
-  BOOL(name: String, value: Bool)
 }
 
 // pub fn json_formatter(
@@ -163,51 +161,17 @@ pub type Attribute {
 //   |> json.to_string
 // }
 
-fn attribute_to_json(attr: Attribute) -> #(String, json.Json) {
-  case attr {
-    STR(key, value) -> #(key, json.string(value))
-    INT(key, value) -> #(key, json.int(value))
-    FLOAT(key, value) -> #(key, json.float(value))
-    BOOL(key, value) -> #(key, json.bool(value))
-  }
+pub fn attribute(md: Metadata(t), attribute: t) -> Metadata(t) {
+  list.prepend(md, #(attribute_atom(attribute), attribute))
 }
 
-fn package_metadata_for_erlang(md: Metadata) -> Dict(Atom, Attribute) {
-  add_atom_attributes_to_dict(md, dict.new())
-}
+@external(erlang, "comet_ffi", "get_attribute_atom")
+fn get_attribute_atom_erlang(attribute: t) -> Atom
 
-fn add_atom_attributes_to_dict(
-  md: Metadata,
-  data: Dict(Atom, Attribute),
-) -> Dict(Atom, Attribute) {
-  case md {
-    [] -> data
-    [first, ..rest] ->
-      add_atom_attributes_to_dict(
-        rest,
-        dict.insert(data, key_name(first.name), first),
-      )
-  }
-}
-
-fn attribute_decoder(
-  value: Dynamic,
-) -> Result(Attribute, List(dynamic.DecodeError)) {
-  case dynamic.classify(value) {
-    "STR" -> Ok(unsafe_dynamic_to_attribute(value))
-    "BOOL" -> Ok(unsafe_dynamic_to_attribute(value))
-    "INT" -> Ok(unsafe_dynamic_to_attribute(value))
-    "FLOAT" -> Ok(unsafe_dynamic_to_attribute(value))
-    _ -> Error([])
-  }
-}
-
-fn unsafe_dynamic_to_attribute(value: Dynamic) -> Attribute {
-  dynamic.unsafe_coerce(value)
-}
-
-pub fn attribute(md: Metadata, attribute: Attribute) -> Metadata {
-  list.prepend(md, attribute)
+fn attribute_atom(attribute: t) -> Atom {
+  let value = get_attribute_atom_erlang(attribute)
+  io.println_error(atom.to_string(value))
+  value
 }
 
 // Filters ---------------------------------------------------------------------------
@@ -215,12 +179,12 @@ pub fn attribute(md: Metadata, attribute: Attribute) -> Metadata {
 //    - fix erlang filters..or try to understand them better and reimplement the filtering system 
 //    - implement javascript s
 
-pub type Entry {
-  Entry(level: Level, message: String, metadata: Metadata)
+pub type Entry(t) {
+  Entry(level: Level, message: String, metadata: Metadata(t))
 }
 
-type Filter =
-  fn(Entry) -> Option(Entry)
+type Filter(t) =
+  fn(Entry(t)) -> Option(Entry(t))
 
 pub type ErlangFilter
 
@@ -234,10 +198,10 @@ type Filters =
 
 @target(javascript)
 pub fn add_allow_metadata_filter(
-  ctx: Context,
+  ctx: Context(t),
   name: String,
   filter: Filter,
-) -> Context {
+) -> Context(t) {
   Context(..ctx, filters: list.append(ctx.filters, [#(name, filter)]))
 }
 
@@ -248,7 +212,10 @@ fn add_allow_metadata_filter_erlang(keys: List(Atom)) -> ErlangFilter
 fn add_deny_metadata_filter_erlang(keys: List(Atom)) -> ErlangFilter
 
 @target(erlang)
-pub fn add_allow_metadata_filter(ctx: Context, keys: List(String)) -> Context {
+pub fn add_allow_metadata_filter(
+  ctx: Context(t),
+  keys: List(String),
+) -> Context(t) {
   Context(
     ..ctx,
     filters: list.append(ctx.filters, [
@@ -257,21 +224,24 @@ pub fn add_allow_metadata_filter(ctx: Context, keys: List(String)) -> Context {
   )
 }
 
-@target(erlang)
-pub fn add_allow_metadata_filter_to_handler(
-  handler: Handler,
-  keys: List(String),
-) -> Handler {
-  Handler(
-    ..handler,
-    filters: list.append(handler.filters, [
-      add_allow_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
-    ]),
-  )
-}
+// @target(erlang)
+// pub fn add_allow_metadata_filter_to_handler(
+//   handler: Handler,
+//   keys: List(String),
+// ) -> Handler {
+//   Handler(
+//     ..handler,
+//     filters: list.append(handler.filters, [
+//       add_allow_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
+//     ]),
+//   )
+// }
 
 @target(erlang)
-pub fn add_deny_metadata_filter(ctx: Context, keys: List(String)) -> Context {
+pub fn add_deny_metadata_filter(
+  ctx: Context(t),
+  keys: List(String),
+) -> Context(t) {
   Context(
     ..ctx,
     filters: list.append(ctx.filters, [
@@ -280,37 +250,32 @@ pub fn add_deny_metadata_filter(ctx: Context, keys: List(String)) -> Context {
   )
 }
 
-@target(erlang)
-pub fn add_deny_metadata_filter_to_handler(
-  handler: Handler,
-  keys: List(String),
-) -> Handler {
-  Handler(
-    ..handler,
-    filters: list.append(handler.filters, [
-      add_deny_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
-    ]),
-  )
-}
+// @target(erlang)
+// pub fn add_deny_metadata_filter_to_handler(
+//   handler: Handler,
+//   keys: List(String),
+// ) -> Handler {
+//   Handler(
+//     ..handler,
+//     filters: list.append(handler.filters, [
+//       add_deny_metadata_filter_erlang(list.map(keys, fn(k) { key_name(k) })),
+//     ]),
+//   )
+// }
 
 // Formatting ---------------------------------------------------------------------------
 
-@target(erlang)
-type Formatter =
-  fn(Entry) -> List(String)
-
-@target(javascript)
-type Formatter =
-  fn(Entry) -> #(String, List(Dynamic))
+type Formatter(t) =
+  fn(Entry(t)) -> List(String)
 
 @target(erlang)
-pub fn text_formatter(entry: Entry) -> List(String) {
+pub fn text_formatter(entry: Entry(t)) -> List(String) {
   let Entry(level, msg, md) = entry
   ["level: ", level_text(level), " | ", msg, " | ", string.inspect(md)]
 }
 
 @target(erlang)
-pub fn json_formatter(entry: Entry) -> List(String) {
+pub fn json_formatter(entry: Entry(t)) -> List(String) {
   todo
   // let Entry(level, msg, md) = entry
   // md
@@ -322,7 +287,7 @@ pub fn json_formatter(entry: Entry) -> List(String) {
 }
 
 @target(javascript)
-pub fn text_formatter(entry: Entry) -> #(String, List(Dynamic)) {
+pub fn text_formatter(entry: Entry(t)) -> #(String, List(Dynamic)) {
   let Entry(level, msg, md) = entry
   let msg =
     ["level:", level_text(level), "|", msg]
@@ -331,21 +296,15 @@ pub fn text_formatter(entry: Entry) -> #(String, List(Dynamic)) {
 }
 
 @target(erlang)
-type LogEvent {
-  Dict(Atom, Attribute)
-  String
-}
-
-@target(erlang)
 pub fn format(
   log: Dict(Atom, Dynamic),
-  config: List(#(Atom, Context)),
+  config: List(#(Atom, Context(t))),
 ) -> List(String) {
   let ctx = extract_context_from_config(config)
   ctx.formatter(extract_entry_from_erlang_log_event(log))
 }
 
-fn extract_context_from_config(config: List(#(Atom, Context))) -> Context {
+fn extract_context_from_config(config: List(#(Atom, Context(t)))) -> Context(t) {
   case list.first(config) {
     Ok(#(_, v)) -> v
     _ -> new()
@@ -353,19 +312,19 @@ fn extract_context_from_config(config: List(#(Atom, Context))) -> Context {
 }
 
 @target(erlang)
-fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry {
+fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry(t) {
   let level: Level = extract_level_from_erlang_log(log)
   let msg: String = extract_msg_from_erlang_log(log)
-  let metadata: Metadata = extract_metadata_from_erlang_log(log)
+  let metadata: Metadata(t) = extract_metadata_from_erlang_log(log)
   Entry(level, msg, metadata)
 }
 
 @target(erlang)
-fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> Metadata {
+fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> Metadata(t) {
   case dict.get(log, key_name("meta")) {
     Ok(value) ->
-      case dynamic.dict(atom.from_dynamic, dynamic.dynamic)(value) {
-        Ok(md) -> list.filter_map(dict.values(md), attribute_decoder)
+      case dynamic.unsafe_coerce(value) {
+        Ok(md) -> md
         _ -> new_metadata()
       }
     _ -> new_metadata()
@@ -438,22 +397,22 @@ fn key_name(name: String) -> String {
 
 // Log APIs ---------------------------------------------------------------------------
 
-pub fn log() -> Metadata {
+pub fn log() -> Metadata(t) {
   new_metadata()
 }
 
 @external(erlang, "comet_ffi", "debug")
 @external(javascript, "./logs.mjs", "debug")
-pub fn debug(md: Metadata, msg: String) -> Nil
+pub fn debug(md: Metadata(t), msg: String) -> Nil
 
 @external(erlang, "comet_ffi", "info")
 @external(javascript, "./logs.mjs", "info")
-pub fn info(md: Metadata, msg: String) -> Nil
+pub fn info(md: Metadata(t), msg: String) -> Nil
 
 @external(erlang, "comet_ffi", "warning")
 @external(javascript, "./logs.mjs", "warning")
-pub fn warning(md: Metadata, msg: String) -> Nil
+pub fn warning(md: Metadata(t), msg: String) -> Nil
 
 @external(erlang, "comet_ffi", "error")
 @external(javascript, "./logs.mjs", "error")
-pub fn error(md: Metadata, msg: String) -> Nil
+pub fn error(md: Metadata(t), msg: String) -> Nil

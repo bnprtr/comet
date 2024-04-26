@@ -1,4 +1,4 @@
-import comet.{attribute, debug, error, info, warning}
+import comet.{attribute, attributes, debug, error, info, warning}
 import gleeunit
 
 pub fn main() {
@@ -27,9 +27,7 @@ pub fn metadata_test() {
   |> debug("did this work? hi mom")
 
   log
-  |> attribute(Latency(24.2))
-  |> attribute(StatusCode(200))
-  |> attribute(Success(True))
+  |> attributes([Latency(24.2), StatusCode(200), Success(True)])
   |> info("access log")
 
   log

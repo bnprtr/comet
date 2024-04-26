@@ -94,6 +94,10 @@ pub fn attribute(md: Metadata(t), attribute: t) -> Metadata(t) {
   list.prepend(md, attribute)
 }
 
+pub fn attributes(md: Metadata(t), attributes: List(t)) -> Metadata(t) {
+  list.append(md, attributes)
+}
+
 pub type Entry(t) {
   Entry(level: Level, message: String, metadata: Metadata(t))
 }

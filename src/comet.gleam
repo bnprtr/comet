@@ -1,261 +1,351 @@
 //// Create a gleaming trail of application logs. 
 
-import birl
-import gleam/json
+import gleam/dict.{type Dict}
+import gleam/dynamic.{type Dynamic}
+import gleam/erlang/atom.{type Atom}
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
 
 pub type Level {
-  Trace
   Debug
   Info
-  Warn
-  Error
+  Warning
+  Err
   Panic
 }
 
-pub type Attribute {
-  String(key: String, value: String)
-  Int(key: String, value: Int)
-  Float(key: String, value: Float)
-  Bool(key: String, value: Bool)
-  Fn(fn() -> Attribute)
-}
-
-pub type Output =
-  fn(String, Level) -> Nil
-
-pub type Formatter =
-  fn(Level, String, List(Attribute)) -> String
-
-pub type LevelTextFn =
-  fn(Level) -> String
-
-pub opaque type Context {
-  Context(formatter: Formatter, output: Output, level_text: LevelTextFn)
-}
-
-type Logger =
-  fn(Level, String, List(Attribute)) -> Nil
-
-pub type Entry {
-  Entry(
-    ctx: Context,
-    level: Level,
-    message: String,
-    attributes: List(Attribute),
-  )
-}
-
-fn init() -> Context {
-  Context(
-    formatter: json_formatter,
-    output: write_output,
-    level_text: get_level_text,
-  )
-}
-
-pub fn formatter(next: Handler, formatter: Formatter) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    let ctx = Context(..entry.ctx, formatter: formatter)
-    next(Entry(..entry, ctx: ctx))
-  }
-}
-
-pub fn output(next: Handler, output: Output) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    let ctx = Context(..entry.ctx, output: output)
-    next(Entry(..entry, ctx: ctx))
-  }
-}
-
-pub fn level_text(next: Handler, func: LevelTextFn) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    let ctx = Context(..entry.ctx, level_text: func)
-    next(Entry(..entry, ctx: ctx))
-  }
-}
-
-pub fn attributes(next: Handler, attributes: List(Attribute)) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    next(Entry(..entry, attributes: list.append(attributes, entry.attributes)))
-  }
-}
-
-pub fn log_level(next: Handler, level: Level) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    case level_priority(entry.level) >= level_priority(level) {
-      True -> next(entry)
-      False -> None
-    }
-  }
-}
-
-pub fn timestamp(next: Handler) -> Handler {
-  fn(entry: Entry) -> Option(Entry) {
-    let timestamp =
-      birl.utc_now()
-      |> birl.to_iso8601
-    next(
-      Entry(
-        ..entry,
-        attributes: list.prepend(
-          entry.attributes,
-          String("timestamp", timestamp),
-        ),
-      ),
-    )
-  }
-}
-
-type Handler =
-  fn(Entry) -> Option(Entry)
-
-pub fn builder() -> Handler {
-  fn(entry: Entry) -> Option(Entry) { Some(entry) }
-}
-
-pub fn logger(next: Handler) -> Logger {
-  fn(level: Level, msg: String, attributes: List(Attribute)) -> Nil {
-    Entry(ctx: init(), level: level, message: msg, attributes: attributes)
-    |> next
-    |> log
-  }
-}
-
-fn log(entry: Option(Entry)) -> Nil {
-  case entry {
-    Some(e) -> {
-      e.ctx.formatter(e.level, e.message, e.attributes)
-      |> e.ctx.output(e.level)
-    }
-    None -> Nil
-  }
-}
-
-pub fn get_level_text(level: Level) -> String {
+pub fn level_text(level: Level) -> String {
   case level {
-    Trace -> "trace"
     Debug -> "debug"
     Info -> "info"
-    Warn -> "warn"
-    Error -> "error"
+    Warning -> "warn"
+    Err -> "error"
     Panic -> "panic"
   }
 }
 
 pub fn level_priority(level: Level) -> Int {
   case level {
-    Trace -> 0
     Debug -> 1
     Info -> 2
-    Warn -> 3
-    Error -> 4
+    Warning -> 3
+    Err -> 4
     Panic -> 5
   }
 }
 
-pub fn json_formatter(
-  level: Level,
-  msg: String,
-  attributes: List(Attribute),
-) -> String {
-  list.map(
-    list.concat([
-      [String("level", get_level_text(level))],
-      attributes,
-      [String("msg", msg)],
-    ]),
-    attribute_to_json,
-  )
-  |> json.object
-  |> json.to_string
-}
+// Context ---------------------------------------------------------------------------
 
-fn attribute_to_json(attr: Attribute) -> #(String, json.Json) {
-  case attr {
-    String(key, value) -> #(key, json.string(value))
-    Int(key, value) -> #(key, json.int(value))
-    Float(key, value) -> #(key, json.float(value))
-    Bool(key, value) -> #(key, json.bool(value))
-    Fn(func) -> attribute_to_json(func())
-  }
-}
-
-type LevelLogger =
-  fn(String, List(Attribute)) -> Nil
-
-pub fn trace(log: Logger) -> LevelLogger {
-  fn(msg: String, attributes: List(Attribute)) -> Nil {
-    log(Trace, msg, attributes)
-  }
-}
-
-pub fn debug(log: Logger) -> LevelLogger {
-  fn(msg: String, attributes: List(Attribute)) -> Nil {
-    log(Debug, msg, attributes)
-  }
-}
-
-pub fn info(log: Logger) -> LevelLogger {
-  fn(msg: String, attributes: List(Attribute)) -> Nil {
-    log(Info, msg, attributes)
-  }
-}
-
-pub fn warn(log: Logger) -> LevelLogger {
-  fn(msg: String, attributes: List(Attribute)) -> Nil {
-    log(Warn, msg, attributes)
-  }
-}
-
-pub fn error(log: Logger) -> LevelLogger {
-  fn(msg: String, attributes: List(Attribute)) -> Nil {
-    log(Error, msg, attributes)
-  }
-}
-
-pub type LevelLoggerSet {
-  LevelLoggerSet(
-    trace: LevelLogger,
-    debug: LevelLogger,
-    info: LevelLogger,
-    warn: LevelLogger,
-    error: LevelLogger,
+pub opaque type Context(t) {
+  Context(
+    level_text: fn(Level) -> String,
+    formatter: Formatter(t),
+    min_level: Level,
   )
 }
 
-pub fn levels(log: Logger) -> LevelLoggerSet {
-  LevelLoggerSet(trace(log), debug(log), info(log), warn(log), error(log))
+pub type AttributeSet(t) {
+
+  // attributes added to the erlang metadata directly
+  Attribute(t)
+
+  // The erlang logger sends the metadata to formatters as a Dict(Atom, Dynamic)
+  // which puts way too much stress on the client developer to properly decode their
+  // attributes in a propably unsafe way. Instead, we insert a metadata entry into the
+  // dictionary so that the Erlang logger can properly filter on the metadata but
+  // we instead stick all of the metadata into a list of a known atom. Since the
+  // list is of type T when we unsafe_coerce, the client developer can simply
+  // use pattern matching to handle the metadata easily. CometAttributeList is
+  // the internal metadata entry used for storing all attributes.
+  CometAttributeList(List(t))
 }
 
-pub fn write_output(entry: String, level: Level) {
-  case level {
-    Trace -> do_println_trace(entry)
-    Debug -> do_println_debug(entry)
-    Info -> do_println_info(entry)
-    Warn -> do_println_warn(entry)
-    Error -> do_println_error(entry)
-    Panic -> do_println_error(entry)
+pub fn new() -> Context(t) {
+  Context(level_text, text_formatter, Info)
+}
+
+@external(erlang, "comet_ffi", "configure")
+@external(javascript, "./logs.mjs", "set_config")
+pub fn configure(ctx: Context(t)) -> Nil
+
+pub fn with_level_text(ctx: Context(t), func: fn(Level) -> String) -> Context(t) {
+  Context(..ctx, level_text: func)
+}
+
+pub fn with_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
+  Context(..ctx, formatter: formatter)
+}
+
+pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
+  Context(..ctx, min_level: level)
+}
+
+// Metadata ---------------------------------------------------------------------------
+
+pub type Metadata(t) =
+  List(t)
+
+fn new_metadata() -> Metadata(t) {
+  []
+}
+
+pub fn attribute(md: Metadata(t), attribute: t) -> Metadata(t) {
+  list.prepend(md, attribute)
+}
+
+pub fn attributes(md: Metadata(t), attributes: List(t)) -> Metadata(t) {
+  list.append(md, attributes)
+}
+
+pub type Entry(t) {
+  Entry(level: Level, message: String, metadata: Metadata(t))
+}
+
+// Formatting ---------------------------------------------------------------------------
+
+@target(erlang)
+type Formatter(t) =
+  fn(Context(t), Entry(t)) -> List(String)
+
+@target(javascript)
+type Formatter(t) =
+  fn(Context(t), Entry(t)) -> String
+
+@target(erlang)
+pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> List(String) {
+  let Entry(level, msg, md) = entry
+  [
+    "level: ",
+    ctx.level_text(level),
+    " | ",
+    string.inspect(md),
+    " | ",
+    msg,
+    "\n",
+  ]
+}
+
+@target(javascript)
+pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
+  let Entry(level, msg, md) = entry
+  ["level:", ctx.level_text(level), "|", string.inspect(md), "|", msg]
+  |> string.join(" ")
+}
+
+@target(erlang)
+pub fn format(
+  log: Dict(Atom, Dynamic),
+  config: List(Dict(Atom, Context(t))),
+) -> List(String) {
+  let ctx = extract_context_from_config(config)
+  ctx.formatter(ctx, extract_entry_from_erlang_log_event(log))
+}
+
+@target(erlang)
+fn extract_context_from_config(
+  config: List(Dict(Atom, Context(t))),
+) -> Context(t) {
+  case list.first(config) {
+    Ok(d) ->
+      case dict.get(d, key_name("config")) {
+        Ok(ctx) -> ctx
+        _ -> new()
+      }
+    _ -> new()
   }
 }
 
-@external(erlang, "gleam_stdlib", "println")
-@external(javascript, "../gleam_stdlib.mjs", "console_trace")
-fn do_println_trace(string string: String) -> Nil
+@target(erlang)
+fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry(t) {
+  let level: Level = extract_level_from_erlang_log(log)
+  let msg: String = extract_msg_from_erlang_log(log)
+  let metadata = extract_metadata_from_erlang_log(log)
+  Entry(level, msg, metadata)
+}
 
-@external(erlang, "gleam_stdlib", "println")
-@external(javascript, "../gleam_stdlib.mjs", "console_debug")
-fn do_println_debug(string string: String) -> Nil
+// this is some nasty stuff to extract the attributes from the erlang logger data.
+// maybe there is a better way to do this.
+@target(erlang)
+fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> List(t) {
+  case dict.get(log, key_name("meta")) {
+    Ok(value) ->
+      case dynamic.dict(atom.from_dynamic, dynamic.dynamic)(value) {
+        Ok(md) ->
+          case dict.get(md, key_name(comet_metadata_stash_key)) {
+            Ok(data) ->
+              case dynamic.unsafe_coerce(data) {
+                CometAttributeList(data) -> data
+                _ -> []
+              }
+            _ -> []
+          }
 
-@external(erlang, "gleam_stdlib", "println")
-@external(javascript, "../gleam_stdlib.mjs", "console_info")
-fn do_println_info(string string: String) -> Nil
+        _ -> []
+      }
+    _ -> []
+  }
+}
 
-@external(erlang, "gleam_stdlib", "println_error")
-@external(javascript, "../gleam_stdlib.mjs", "console_warn")
-fn do_println_warn(string string: String) -> Nil
+@target(erlang)
+fn extract_level_from_erlang_log(log: Dict(Atom, Dynamic)) -> Level {
+  case dict.get(log, key_name("level")) {
+    Ok(value) -> decode_level(value)
+    _ -> Err
+  }
+}
 
-@external(erlang, "gleam_stdlib", "println_error")
-@external(javascript, "../gleam_stdlib.mjs", "console_error")
-fn do_println_error(string string: String) -> Nil
+@target(erlang)
+fn decode_level(value: Dynamic) -> Level {
+  case atom.from_dynamic(value) {
+    Ok(level) -> {
+      case atom.to_string(level) {
+        "debug" -> Debug
+        "info" -> Info
+        "warning" -> Warning
+        "error" -> Err
+        _ -> Err
+      }
+    }
+    _ -> Err
+  }
+}
+
+@target(erlang)
+fn extract_msg_from_erlang_log(log: Dict(Atom, Dynamic)) -> String {
+  case dict.get(log, key_name("msg")) {
+    Ok(value) ->
+      case
+        result.try(
+          dynamic.tuple2(atom.from_dynamic, dynamic.string)(value),
+          fn(a: #(Atom, String)) { Ok(a.1) },
+        )
+      {
+        Ok(msg) -> msg
+        _ -> ""
+      }
+    _ -> ""
+  }
+}
+
+@target(erlang)
+fn key_name(name: String) -> Atom {
+  case atom.from_string(name) {
+    Ok(a) -> a
+    _ -> atom.create_from_string(name)
+  }
+}
+
+// Log APIs ---------------------------------------------------------------------------
+
+pub fn log() -> Metadata(t) {
+  new_metadata()
+}
+
+@target(erlang)
+pub fn debug(md: Metadata(t), msg: String) -> Nil {
+  debug_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
+@target(erlang)
+@external(erlang, "comet_ffi", "debug")
+fn debug_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
+pub fn debug(md: Metadata(t), msg: String) -> Nil {
+  debug_javascript(Debug, md, msg)
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "debug")
+fn debug_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
+
+@target(erlang)
+pub fn info(md: Metadata(t), msg: String) -> Nil {
+  info_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
+@target(erlang)
+@external(erlang, "comet_ffi", "info")
+fn info_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
+pub fn info(md: Metadata(t), msg: String) -> Nil {
+  info_javascript(Info, md, msg)
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "info")
+fn info_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
+
+@target(erlang)
+pub fn warning(md: Metadata(t), msg: String) -> Nil {
+  warning_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
+@target(erlang)
+@external(erlang, "comet_ffi", "warning")
+fn warning_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
+pub fn warning(md: Metadata(t), msg: String) -> Nil {
+  warning_javascript(Warning, md, msg)
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "warning")
+fn warning_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
+
+@target(erlang)
+pub fn error(md: Metadata(t), msg: String) -> Nil {
+  error_erlang(prepare_metadata_for_erlang(md), msg)
+}
+
+@target(erlang)
+@external(erlang, "comet_ffi", "error")
+fn error_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
+
+@target(javascript)
+pub fn error(md: Metadata(t), msg: String) -> Nil {
+  error_javascript(Err, md, msg)
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "error")
+fn error_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
+
+// Erlang Interface -------------------------------------------------------------------
+
+@target(erlang)
+const comet_metadata_stash_key = "comet metadata stash key"
+
+// TODO: performance optiziation in erlang would be to build the Dict(Atom, AttribeSet)
+// while each attribute is added and store it in the Metadata. This would prevent rebuilding
+// of metadata entries and atom conversions for log builders that are cached with
+// default attributes in them
+@target(erlang)
+fn prepare_metadata_for_erlang(md: Metadata(t)) -> Dict(Atom, AttributeSet(t)) {
+  let key = key_name(comet_metadata_stash_key)
+  md
+  |> convert_metadata_to_atom_dict(dict.new())
+  |> dict.insert(key, CometAttributeList(md))
+}
+
+@target(erlang)
+fn convert_metadata_to_atom_dict(
+  md: Metadata(t),
+  data: Dict(Atom, AttributeSet(t)),
+) -> Dict(Atom, AttributeSet(t)) {
+  case md {
+    [] -> data
+    [first, ..rest] ->
+      convert_metadata_to_atom_dict(
+        rest,
+        dict.insert(data, attribute_atom(first), Attribute(first)),
+      )
+  }
+}
+
+@target(erlang)
+@external(erlang, "comet_ffi", "get_attribute_atom")
+fn attribute_atom(attribute: t) -> Atom

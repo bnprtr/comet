@@ -1,145 +1,101 @@
-import comet
-import gleam/dynamic
-import gleam/erlang/process.{type Subject}
-import gleam/io
-import gleam/json
-import gleam/list
-import gleam/otp/actor
+import comet.{attribute, attributes, debug, error, info, warning}
 import gleeunit
-import gleeunit/should
 
 pub fn main() {
   gleeunit.main()
 }
 
-type LogMessage {
-  Entry(String)
-  Retrieve(Subject(List(String)))
+type Attribute {
+  Service(String)
+  Latency(Float)
+  StatusCode(Int)
+  Success(Bool)
+  Err(String)
 }
 
-fn log_aggregator(
-  msg: LogMessage,
-  logs: List(String),
-) -> actor.Next(LogMessage, List(String)) {
-  case msg {
-    Entry(entry) -> actor.continue(list.append(logs, [entry]))
-    Retrieve(subject) -> {
-      process.send(subject, logs)
-      actor.continue(logs)
-    }
+// todo: tests were removed since log handlers are not yet implemented.
+pub fn metadata_test() {
+  comet.new()
+  |> comet.with_level(comet.Debug)
+  |> comet.configure()
+
+  let log =
+    comet.log()
+    |> attribute(Service("comet"))
+
+  log
+  |> debug("did this work? hi mom")
+
+  log
+  |> attributes([Latency(24.2), StatusCode(200), Success(True)])
+  |> info("access log")
+
+  log
+  |> attribute(Latency(102.2))
+  |> attribute(StatusCode(400))
+  |> attribute(Err("input not accepted"))
+  |> attribute(Success(False))
+  |> warning("access log")
+
+  log
+  |> attribute(Latency(402.0))
+  |> attribute(StatusCode(500))
+  |> attribute(Err("database connection error"))
+  |> attribute(Success(False))
+  |> error("access log")
+}
+
+fn levels(level: comet.Level) -> String {
+  case level {
+    comet.Debug -> "DEBG"
+    comet.Info -> "INFO"
+    comet.Warning -> "WARN"
+    comet.Err -> "ERR"
+    comet.Panic -> "PANIC"
   }
 }
 
-pub fn log_test() {
-  let assert Ok(output) = actor.start([], log_aggregator)
+pub fn level_text_test() {
+  comet.new()
+  |> comet.with_level(comet.Debug)
+  |> comet.with_level_text(levels)
+  |> comet.configure
+
+  let log = comet.log()
+
+  log
+  |> debug("should be DEBG")
+
+  log
+  |> info("should be INFO")
+
+  log
+  |> warning("should be WARN")
+
+  log
+  |> error("should be ERR")
+}
+
+@target(erlang)
+fn formatter(_, _) {
+  ["JUST THIS"]
+}
+
+@target(javascript)
+fn formatter(_, _) {
+  "JUST THIS"
+}
+
+pub fn formatter_test() {
+  comet.new()
+  |> comet.with_level(comet.Debug)
+  |> comet.with_formatter(formatter)
+  |> comet.configure()
+
   let log =
-    comet.builder()
-    |> comet.output(fn(msg: String, level: comet.Level) -> Nil {
-      comet.write_output(msg, level)
-      process.send(output, Entry(msg))
-      Nil
-    })
-    |> comet.logger
-  log(comet.Trace, "Trace", [comet.String("region", "us-west4")])
-  log(comet.Debug, "Debug", [comet.Bool("gleam_rocks", True)])
-  log(comet.Info, "Info", [comet.Int("num_pets", 18)])
-  log(comet.Warn, "Warn", [comet.Float("chance_of_success", 33.3333333)])
-  log(comet.Error, "Error", [
-    comet.Fn(fn() -> comet.Attribute { comet.String("lang", "gleam") }),
-  ])
+    comet.log()
+    |> attribute(Service("comet"))
 
-  should.equal(process.call(output, Retrieve, 10), [
-    "{\"level\":\"trace\",\"region\":\"us-west4\",\"msg\":\"Trace\"}",
-    "{\"level\":\"debug\",\"gleam_rocks\":true,\"msg\":\"Debug\"}",
-    "{\"level\":\"info\",\"num_pets\":18,\"msg\":\"Info\"}",
-    "{\"level\":\"warn\",\"chance_of_success\":33.3333333,\"msg\":\"Warn\"}",
-    "{\"level\":\"error\",\"lang\":\"gleam\",\"msg\":\"Error\"}",
-  ])
-}
-
-pub fn log_level_test() {
-  let assert Ok(output) = actor.start([], log_aggregator)
-  let log =
-    comet.builder()
-    |> comet.output(fn(msg: String, level: comet.Level) -> Nil {
-      comet.write_output(msg, level)
-      process.send(output, Entry(msg))
-      Nil
-    })
-    |> comet.log_level(comet.Warn)
-    |> comet.logger
-  log(comet.Trace, "Trace", [comet.String("region", "us-west4")])
-  log(comet.Debug, "Debug", [comet.Bool("gleam_rocks", True)])
-  log(comet.Info, "Info", [comet.Int("num_pets", 18)])
-  log(comet.Warn, "Warn", [comet.Float("chance_of_success", 33.3333333)])
-  log(comet.Error, "Error", [
-    comet.Fn(fn() -> comet.Attribute { comet.String("lang", "gleam") }),
-  ])
-
-  should.equal(process.call(output, Retrieve, 10), [
-    "{\"level\":\"warn\",\"chance_of_success\":33.3333333,\"msg\":\"Warn\"}",
-    "{\"level\":\"error\",\"lang\":\"gleam\",\"msg\":\"Error\"}",
-  ])
-}
-
-type LogEntry {
-  LogEntry(level: String, msg: String, timestamp: String)
-}
-
-pub fn timestamp_log_test() {
-  let assert Ok(output) = actor.start([], log_aggregator)
-  let log =
-    comet.builder()
-    |> comet.output(fn(msg: String, _: comet.Level) -> Nil {
-      io.debug(msg)
-      process.send(output, Entry(msg))
-      Nil
-    })
-    |> comet.timestamp
-    |> comet.logger
-  log(comet.Trace, "Trace", [])
-
-  let logs = process.call(output, Retrieve, 10)
-
-  let log_decoder =
-    dynamic.decode3(
-      LogEntry,
-      dynamic.field("level", dynamic.string),
-      dynamic.field("msg", dynamic.string),
-      dynamic.field("timestamp", dynamic.string),
-    )
-  case logs {
-    [raw] -> {
-      let assert Ok(entry) = json.decode(raw, log_decoder)
-      should.not_equal(entry.timestamp, "")
-      should.equal(entry, LogEntry("trace", "Trace", entry.timestamp))
-    }
-    _ -> should.fail()
-  }
-}
-
-pub fn level_log_test() {
-  let assert Ok(output) = actor.start([], log_aggregator)
-  let assert comet.LevelLoggerSet(trace, debug, info, warn, err) =
-    comet.builder()
-    |> comet.output(fn(msg: String, level: comet.Level) -> Nil {
-      process.send(output, Entry(msg))
-      Nil
-    })
-    |> comet.attributes([comet.String("service", "comet")])
-    |> comet.logger
-    |> comet.levels
-  trace("Trace", [])
-  debug("Debug", [])
-  info("Info", [])
-  warn("Warn", [])
-  err("Error", [])
-
-  should.equal(process.call(output, Retrieve, 10), [
-    "{\"level\":\"trace\",\"service\":\"comet\",\"msg\":\"Trace\"}",
-    "{\"level\":\"debug\",\"service\":\"comet\",\"msg\":\"Debug\"}",
-    "{\"level\":\"info\",\"service\":\"comet\",\"msg\":\"Info\"}",
-    "{\"level\":\"warn\",\"service\":\"comet\",\"msg\":\"Warn\"}",
-    "{\"level\":\"error\",\"service\":\"comet\",\"msg\":\"Error\"}",
-  ])
+  log
+  |> info("something")
 }

@@ -1,4 +1,9 @@
 let config = {}
+const handlers = []
+
+export function add_handler(handler) {
+ handlers.push(handler)
+}
 
 export function set_config(configuration) {
   config = configuration

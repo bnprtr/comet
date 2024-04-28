@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/bnprtr/comet/compare/v0.2.0...v0.2.1) (2024-04-28)
+
+
+### Bug Fixes
+
+* hex import paths ([#19](https://github.com/bnprtr/comet/issues/19)) ([a5d7141](https://github.com/bnprtr/comet/commit/a5d7141766bcc889303ea44e8543dd7c335279d3))
+
 ## [0.2.0](https://github.com/bnprtr/comet/compare/v0.1.0...v0.2.0) (2024-04-28)
 
 

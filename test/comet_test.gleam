@@ -3,8 +3,10 @@ import gleam/dynamic
 import gleam/erlang/process.{type Subject}
 import gleam/io
 import gleam/javascript/array
+import gleam/json
 import gleam/list
 import gleam/otp/actor
+import gleam_community/ansi
 import gleeunit
 import gleeunit/should
 import level.{type Level, Debug, Error, Info, Warning}
@@ -19,6 +21,16 @@ type Attribute {
   StatusCode(Int)
   Success(Bool)
   AnError(String)
+}
+
+fn attribute_serializer(a: Attribute) -> #(String, json.Json) {
+  case a {
+    Service(value) -> #("service", json.string(value))
+    Latency(value) -> #("latency", json.float(value))
+    StatusCode(value) -> #("statusCode", json.int(value))
+    Success(value) -> #("success", json.bool(value))
+    AnError(value) -> #("error", json.string(value))
+  }
 }
 
 // todo: tests were removed since log handlers are not yet implemented.
@@ -54,10 +66,10 @@ pub fn metadata_test() {
   |> error("access log")
 
   should.equal(get_logs(logs), [
-    "level: debug | [Service(\"comet\")] | did this work? hi mom",
-    "level: info | [Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] | access log",
-    "level: warn | [Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] | access log",
-    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] | access log",
+    "level=debug attributes=[Service(\"comet\")] msg=did this work? hi mom",
+    "level=info attributes=[Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] msg=access log",
+    "level=warn attributes=[Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] msg=access log",
+    "level=error attributes=[Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] msg=access log",
   ])
   close(logs)
 }
@@ -99,10 +111,10 @@ pub fn multi_handler_test() {
   |> error("access log")
 
   should.equal(get_logs(logs), [
-    "level: debug | [Service(\"comet\")] | did this work? hi mom",
-    "level: info | [Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] | access log",
-    "level: warn | [Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] | access log",
-    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] | access log",
+    "level=debug attributes=[Service(\"comet\")] msg=did this work? hi mom",
+    "level=info attributes=[Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] msg=access log",
+    "level=warn attributes=[Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] msg=access log",
+    "level=error attributes=[Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] msg=access log",
   ])
 
   should.equal(get_logs(logs2), [
@@ -117,7 +129,7 @@ fn levels(level: Level) -> String {
     Debug -> "DEBG"
     Info -> "INFO"
     Warning -> "WARN"
-    Error -> "Error"
+    Error -> "ERR"
   }
 }
 
@@ -125,8 +137,11 @@ pub fn level_text_test() {
   let logs =
     comet.new()
     |> comet.with_level(Debug)
+    |> comet.timestamp(False)
+    |> comet.with_formatter(comet.text_formatter)
     |> comet.with_level_text(levels)
-    |> test_configure("level_text_test")
+    |> comet.configure
+    |> test_handler("level_text_test")
 
   let log = comet.log()
 
@@ -143,8 +158,10 @@ pub fn level_text_test() {
   |> error("should be ERR")
 
   should.equal(get_logs(logs), [
-    "level: DEBG | [] | should be DEBG", "level: INFO | [] | should be INFO",
-    "level: WARN | [] | should be WARN", "level: Error | [] | should be ERR",
+    "level=DEBG attributes=[] msg=should be DEBG",
+    "level=INFO attributes=[] msg=should be INFO",
+    "level=WARN attributes=[] msg=should be WARN",
+    "level=ERR attributes=[] msg=should be ERR",
   ])
   close(logs)
 }
@@ -185,6 +202,29 @@ pub fn formatter_test() {
   close(logs)
 }
 
+pub fn json_test() {
+  let logs =
+    comet.new()
+    |> comet.with_formatter(comet.json_formatter(attribute_serializer))
+    |> comet.timestamp(False)
+    |> comet.configure
+    |> test_handler("json_test")
+
+  comet.log()
+  |> attributes([Service("comet"), Success(True)])
+  |> info("a thing")
+
+  comet.log()
+  |> attribute(AnError("access denied"))
+  |> error("a bad thing")
+
+  should.equal(get_logs(logs), [
+    "{\"msg\":\"a thing\",\"level\":\"info\",\"service\":\"comet\",\"success\":true}",
+    "{\"msg\":\"a bad thing\",\"level\":\"error\",\"error\":\"access denied\"}",
+  ])
+  close(logs)
+}
+
 @target(erlang)
 fn log_handler() -> Subject(Message) {
   let assert Ok(pid) =
@@ -209,17 +249,22 @@ fn test_configure(
   ctx: comet.Context(Attribute),
   name: String,
 ) -> Subject(Message) {
-  comet.configure(ctx)
+  ctx
+  |> comet.with_level_text(level.level_text_ansi)
   |> comet.with_formatter(comet.text_formatter)
+  |> comet.configure
+  |> comet.timestamp(False)
   |> test_handler(name)
 }
 
 @target(javascript)
 fn test_configure(ctx: comet.Context(Attribute), name: String) -> String {
   ctx
+  |> comet.with_level_text(level.level_text_ansi)
   |> comet.with_formatter(comet.text_formatter)
   |> comet.configure
-  |> comet.add_handler(name, test_handler_js(name))
+  |> comet.timestamp(False)
+  |> test_handler_wrapper(name)
   name
 }
 
@@ -245,7 +290,7 @@ fn close(logs) {
 fn test_handler(ctx: comet.Context(Attribute), name: String) -> Subject(Message) {
   let handler = log_handler()
   comet.set_handler(ctx, name, fn(data: String) {
-    process.send(handler, Log(data))
+    process.send(handler, Log(ansi.strip(data)))
     Nil
   })
   handler
@@ -253,9 +298,20 @@ fn test_handler(ctx: comet.Context(Attribute), name: String) -> Subject(Message)
 
 @target(javascript)
 fn test_handler(ctx: comet.Context(Attribute), name: String) -> String {
-  ctx
-  |> comet.add_handler(name, test_handler_js(name))
+  test_handler_wrapper(ctx, name)
   name
+}
+
+@target(javascript)
+fn test_handler_wrapper(
+  ctx: comet.Context(Attribute),
+  name: String,
+) -> comet.Handler {
+  let js_handler = test_handler_js(name)
+  let handler = fn(str: String) -> Nil { js_handler(ansi.strip(str)) }
+  ctx
+  |> comet.add_handler(name, handler)
+  handler
 }
 
 @target(javascript)

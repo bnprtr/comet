@@ -13,7 +13,8 @@ The API of this library is still unstable. Be aware that it will change before s
 gleam add comet
 ```
 ```gleam
-import comet.{attribute, Debug, debug, info, warning, error}
+import comet.{attribute, debug, info, warning, error}
+import comet/level.{Debug}
   
 type LogAttribute {
   Service(String)

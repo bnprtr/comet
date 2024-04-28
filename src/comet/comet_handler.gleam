@@ -1,4 +1,5 @@
 import comet.{type Context, Entry, new}
+import comet/level.{type Level, Debug, Error as Err, Info, Warning}
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/atom.{
@@ -8,7 +9,6 @@ import gleam/erlang/atom.{
 import gleam/erlang/charlist.{type Charlist}
 import gleam/option.{None, Some}
 import gleam/result
-import level.{type Level, Debug, Error as Err, Info, Warning}
 
 const comet_metadata_stash_key = "comet metadata stash key"
 

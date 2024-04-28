@@ -6,6 +6,7 @@ import gleam/erlang/atom as glatom
 import gleam/erlang/charlist
 import gleam/io
 import gleam/javascript/map
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -41,7 +42,7 @@ pub type Formatter(t) =
 @internal
 pub opaque type Context(t) {
   Context(
-    level_text: fn(Level) -> String,
+    level_text: LevelTextFn,
     formatter: Option(Formatter(t)),
     min_level: Level,
     handler: Option(Handler),
@@ -63,6 +64,10 @@ pub fn configure(ctx: Context(t)) -> Context(t) {
 pub fn new() -> Context(t) {
   Context(level_text, None, Info, None)
 }
+
+/// LevelTextFn can be provided to the log context to override the level names in logs
+pub type LevelTextFn =
+  fn(Level) -> String
 
 /// Metadata is a list of attributes that can be attached to a log entry.
 pub type Metadata(t) =
@@ -86,6 +91,19 @@ pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
   let Entry(level, msg, md) = entry
   ["level:", ctx.level_text(level), "|", string.inspect(md), "|", msg]
   |> string.join(" ")
+}
+
+pub type AttributeJsonSerializer(t) =
+  fn(t) -> #(String, json.Json)
+
+pub fn json_formatter(serializer: AttributeJsonSerializer(t)) -> Formatter(t) {
+  fn(ctx: Context(t), entry: Entry(t)) -> String {
+    list.map(entry.metadata, serializer)
+    |> list.prepend(#("level", json.string(ctx.level_text(entry.level))))
+    |> list.prepend(#("msg", json.string(entry.message)))
+    |> json.object
+    |> json.to_string
+  }
 }
 
 @target(erlang)
@@ -189,12 +207,10 @@ pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
 }
 
-@internal
 pub fn get_handler(ctx: Context(t)) -> Option(Handler) {
   ctx.handler
 }
 
-@internal
 pub fn get_formatter(ctx: Context(t)) -> Option(Formatter(t)) {
   ctx.formatter
 }

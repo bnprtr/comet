@@ -65,6 +65,32 @@ level: warn | [Success(False), Err("input not accepted"), StatusCode(400), Laten
 level: error | [Success(False), Err("database connection error"), StatusCode(500), Latency(402.0), Service("comet")] | access log
 ```
 
+## JSON Formatted Logs
+```gleam
+import comet.{info}
+import gleam/json
+
+fn attribute_serializer(a: Attribute) -> #(String, json.Json) {
+  case a {
+    Service(value) -> #("service", json.string(value))
+    Latency(value) -> #("latency", json.float(value))
+    StatusCode(value) -> #("statusCode", json.int(value))
+    Success(value) -> #("success", json.bool(value))
+    AnError(value) -> #("error", json.string(value))
+  }
+}
+
+fn main() {
+let logs =
+    comet.new()
+    |> comet.with_formatter(comet.json_formatter(attribute_serializer))
+    |> test_handler("json_test")
+
+  comet.log()
+  |> attributes([Service("comet"), Success(True)])
+  |> info("a thing")
+}
+```
 Further documentation can be found at <https://hexdocs.pm/comet>.
 
 ## Development

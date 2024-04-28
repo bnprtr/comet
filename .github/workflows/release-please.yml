@@ -15,5 +15,4 @@ jobs:
         with:
           release-type: simple
           token: ${{ secrets.RELEASE_PLEASE_PAT }}
-          package-name: github.com/bnprtr/comet
-          draft-pull-request: true
+

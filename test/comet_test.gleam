@@ -7,7 +7,7 @@ import gleam/list
 import gleam/otp/actor
 import gleeunit
 import gleeunit/should
-import level.{type Level, Debug, Error, Info, Panic, Warning}
+import level.{type Level, Debug, Error, Info, Warning}
 
 pub fn main() {
   gleeunit.main()
@@ -118,7 +118,6 @@ fn levels(level: Level) -> String {
     Info -> "INFO"
     Warning -> "WARN"
     Error -> "Error"
-    Panic -> "PANIC"
   }
 }
 
@@ -234,7 +233,7 @@ fn close(name) {
   remove_handler(name)
 }
 
-@external(javascript, "./logs.mjs", "remove_handler")
+@external(javascript, "./logs.mjs", "removeHandler")
 fn remove_handler(name: String) -> Nil
 
 @target(erlang)
@@ -245,7 +244,7 @@ fn close(logs) {
 @target(erlang)
 fn test_handler(ctx: comet.Context(Attribute), name: String) -> Subject(Message) {
   let handler = log_handler()
-  comet.add_handler(ctx, name, fn(data: String) {
+  comet.set_handler(ctx, name, fn(data: String) {
     process.send(handler, Log(data))
     Nil
   })
@@ -260,7 +259,7 @@ fn test_handler(ctx: comet.Context(Attribute), name: String) -> String {
 }
 
 @target(javascript)
-@external(javascript, "./logs.mjs", "test_handler")
+@external(javascript, "./logs.mjs", "testHandler")
 fn test_handler_js(msg: String) -> comet.Handler
 
 @target(javascript)
@@ -269,5 +268,5 @@ fn get_logs(name: String) -> List(String) {
 }
 
 @target(javascript)
-@external(javascript, "./logs.mjs", "get_test_logs")
+@external(javascript, "./logs.mjs", "getTestLogs")
 fn get_logs_js(name: String) -> array.Array(String)

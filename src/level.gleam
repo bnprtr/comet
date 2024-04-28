@@ -5,7 +5,6 @@ pub fn level_priority(level: Level) -> Int {
     Info -> 2
     Warning -> 3
     Error -> 4
-    Panic -> 5
   }
 }
 
@@ -14,7 +13,6 @@ pub type Level {
   Info
   Warning
   Error
-  Panic
 }
 
 pub fn level_text(level: Level) -> String {
@@ -23,6 +21,5 @@ pub fn level_text(level: Level) -> String {
     Info -> "info"
     Warning -> "warn"
     Error -> "error"
-    Panic -> "panic"
   }
 }

@@ -12,13 +12,7 @@ import gleam/result
 import gleam/string
 import level.{type Level, Debug, Error as Err, Info, Warning, level_text}
 
-@target(erlang)
-type Atom =
-  glatom.Atom
-
-type Charlist =
-  charlist.Charlist
-
+@internal
 pub type AttributeSet(t) {
 
   // attributes added to the erlang metadata directly
@@ -37,10 +31,15 @@ pub type AttributeSet(t) {
 
 pub const comet_metadata_stash_key = "comet metadata stash key"
 
+/// Formatter is called by the logger to format the log entry into a string before it is sent to the
+/// log handler. The formatter is passed the context and the log entry and should return a string.
+/// The formatter is optional, if one is not provided than the default formatter is used.
 pub type Formatter(t) =
   fn(Context(t), Entry(t)) -> String
 
-pub type Context(t) {
+/// Context contains logging settings.
+@internal
+pub opaque type Context(t) {
   Context(
     level_text: fn(Level) -> String,
     formatter: Option(Formatter(t)),
@@ -49,108 +48,44 @@ pub type Context(t) {
   )
 }
 
+/// configure is used to initialize the global logger settings. It should be called once at the
+/// start of the application. You should not call it again after the logger has been initialized as
+/// it will overwrite the global erlang and javascript logger settings.
 pub fn configure(ctx: Context(t)) -> Context(t) {
   initialize_context(ctx)
 }
 
+/// new creates a new logger context with default settings.
+/// The default settings are:
+/// - level_text: debug, info, warn, error
+/// - formatter: None (uses the backend default formatter)
+/// - min_level: Info
 pub fn new() -> Context(t) {
   Context(level_text, None, Info, None)
 }
 
+/// Metadata is a list of attributes that can be attached to a log entry.
 pub type Metadata(t) =
   List(t)
 
+///  Entry is a log entry containing the log level, message, and metadata. This will be provided to
+/// the log formatter to be converted into a string.
 pub type Entry(t) {
   Entry(level: Level, message: String, metadata: Metadata(t))
 }
 
+/// Handlers are functions which receive a formatted string to be sent to the log destination.
+/// The default handler emits logs to the console or standard_io in the case of the erlang backend.
+/// Additional handlers can be added to the logger to send logs to other destinations, such as shipping
+/// logs to a remote server or writing logs to a file.
 pub type Handler =
   fn(String) -> Nil
 
-@target(erlang)
-pub fn extract_context_from_config(config: Dict(Atom, Context(t))) -> Context(t) {
-  case dict.get(config, atom("config")) {
-    Ok(ctx) -> ctx
-    _ -> new()
-  }
-}
-
+/// This is the standard text formatter for logs. It will format the log entry into a string
 pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
   let Entry(level, msg, md) = entry
   ["level:", ctx.level_text(level), "|", string.inspect(md), "|", msg]
   |> string.join(" ")
-}
-
-@target(erlang)
-pub fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry(t) {
-  let level: Level = extract_level_from_erlang_log(log)
-  let msg: String = extract_msg_from_erlang_log(log)
-  let metadata = extract_metadata_from_erlang_log(log)
-  Entry(level, msg, metadata)
-}
-
-// this is some nasty stuff to extract the attributes from the erlang logger data.
-// maybe there is a better way to do this.
-@target(erlang)
-fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> List(t) {
-  case dict.get(log, atom("meta")) {
-    Ok(value) ->
-      case dynamic.dict(glatom.from_dynamic, dynamic.dynamic)(value) {
-        Ok(md) ->
-          case dict.get(md, atom(comet_metadata_stash_key)) {
-            Ok(data) ->
-              case dynamic.unsafe_coerce(data) {
-                CometAttributeList(data) -> data
-                _ -> []
-              }
-            _ -> []
-          }
-
-        _ -> []
-      }
-    _ -> []
-  }
-}
-
-@target(erlang)
-fn extract_level_from_erlang_log(log: Dict(Atom, Dynamic)) -> Level {
-  case dict.get(log, atom("level")) {
-    Ok(value) -> decode_level(value)
-    _ -> Err
-  }
-}
-
-@target(erlang)
-fn decode_level(value: Dynamic) -> Level {
-  case glatom.from_dynamic(value) {
-    Ok(level) -> {
-      case glatom.to_string(level) {
-        "debug" -> Debug
-        "info" -> Info
-        "warning" -> Warning
-        "error" -> Err
-        _ -> Err
-      }
-    }
-    _ -> Err
-  }
-}
-
-@target(erlang)
-fn extract_msg_from_erlang_log(log: Dict(Atom, Dynamic)) -> String {
-  case dict.get(log, atom("msg")) {
-    Ok(value) ->
-      case
-        result.try(
-          dynamic.tuple2(glatom.from_dynamic, dynamic.string)(value),
-          fn(a: #(Atom, String)) { Ok(a.1) },
-        )
-      {
-        Ok(msg) -> msg
-        _ -> ""
-      }
-    _ -> ""
-  }
 }
 
 @target(erlang)
@@ -194,7 +129,7 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
       let formatter_config =
         dict.new()
         |> dict.insert(atom("formatter"), #(
-          atom("comet"),
+          atom("comet_handler"),
           dict.new()
             |> dict.insert(atom("config"), ctx),
         ))
@@ -223,70 +158,52 @@ fn initialize_context(log ctx: Context(t)) -> Context(t) {
   ctx
 }
 
-@external(javascript, "./logs.mjs", "set_config")
+@external(javascript, "./logs.mjs", "setConfig")
 fn set_config_javascript(
   config: Context(t),
   configuration: map.Map(string, Dynamic),
 ) -> Nil
 
 @target(erlang)
-pub fn atom(name: String) -> Atom {
+fn atom(name: String) -> Atom {
   case glatom.from_string(name) {
     Ok(a) -> a
     _ -> glatom.create_from_string(name)
   }
 }
 
-@target(erlang)
-@external(erlang, "logger", "update_handler_config")
-fn update_handler_config_context_erlang(
-  handler id: Atom,
-  config config: Dict(Atom, #(Atom, Dict(Atom, Context(t)))),
-) -> Nil
-
-@target(erlang)
-@external(erlang, "logger", "update_handler_config")
-fn update_handler_config_erlang(
-  handler id: Atom,
-  config config: Dict(Atom, Dynamic),
-) -> Nil
-
-@target(erlang)
-@external(erlang, "logger", "set_handler_config")
-fn set_handler_config_erlang(
-  handler id: Atom,
-  module name: Atom,
-  config map: #(Atom, Dynamic),
-) -> Nil
-
-//  logger:update_primary_config(#{
-//    level => MinLevel,
-//    filter_default => log,
-//    filters => [],
-//    metadata => #{}
-//  }),
-@target(erlang)
-@external(erlang, "logger", "update_primary_config")
-fn update_primary_config_erlang(config map: Dict(Atom, Dynamic)) -> Nil
-
 // Context ---------------------------------------------------------------------------
 
+/// Provide a function to override the log level names emitted in logs 
 pub fn with_level_text(ctx: Context(t), func: fn(Level) -> String) -> Context(t) {
   Context(..ctx, level_text: func)
 }
 
+/// provide a custom formatter to format log entries
 pub fn with_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
   Context(..ctx, formatter: Some(formatter))
 }
 
+/// set the log level for the logger
 pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
+}
+
+@internal
+pub fn get_handler(ctx: Context(t)) -> Option(Handler) {
+  ctx.handler
+}
+
+@internal
+pub fn get_formatter(ctx: Context(t)) -> Option(Formatter(t)) {
+  ctx.formatter
 }
 
 // Handlers ---------------------------------------------------------------------------
 
 @target(erlang)
-pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
+/// Set the context's handler to a custom Handler.
+pub fn set_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
   let ctx = Context(..ctx, handler: Some(handler))
   let config =
     prepare_erlang_handler_config(ctx)
@@ -304,14 +221,6 @@ pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
   add_handler_erlang(atom(name), atom("comet_handler"), config)
 }
 
-// logger:add_handler(Name, Module, #{
-//     level => MinLevel,
-//     filter_default => log,
-//     config => Handler,
-//     filters => [],
-//     formatter => {comet, [#{config => Handler}]},
-//     metadata => #{}
-// }),
 @target(erlang)
 @external(erlang, "logger", "add_handler")
 fn add_handler_erlang(
@@ -321,6 +230,7 @@ fn add_handler_erlang(
 ) -> Nil
 
 @target(javascript)
+/// Set the context's handler to a custom Handler.
 pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
   let config =
     map.new()
@@ -335,7 +245,7 @@ pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
   |> add_handler_js(name)
 }
 
-@external(javascript, "./logs.mjs", "add_handler")
+@external(javascript, "./logs.mjs", "addHandler")
 fn add_handler_js(config: map.Map(string, Dynamic), name: String) -> Nil
 
 // Metadata ---------------------------------------------------------------------------
@@ -344,33 +254,25 @@ fn new_metadata() -> Metadata(t) {
   []
 }
 
+/// Add an attribute to the metadata.
 pub fn attribute(md: Metadata(t), attribute: t) -> Metadata(t) {
   list.prepend(md, attribute)
 }
 
+/// Append a list of attributes to the metadata.
 pub fn attributes(md: Metadata(t), attributes: List(t)) -> Metadata(t) {
   list.append(md, attributes)
 }
 
-// Formatting ---------------------------------------------------------------------------
-
-@target(erlang)
-pub fn format(
-  log: Dict(Atom, Dynamic),
-  config: Dict(Atom, Context(t)),
-) -> Charlist {
-  let ctx = extract_context_from_config(config)
-  let assert Some(formatter) = ctx.formatter
-  charlist.from_string(formatter(ctx, extract_entry_from_erlang_log_event(log)))
-}
-
 // Log APIs ---------------------------------------------------------------------------
 
+/// creates a new leg entry builder.
 pub fn log() -> Metadata(t) {
   new_metadata()
 }
 
 @target(erlang)
+/// log a message at the debug level
 pub fn debug(md: Metadata(t), msg: String) -> Nil {
   log_erlang(Debug, msg, prepare_metadata_for_erlang(md))
 }
@@ -380,6 +282,7 @@ pub fn debug(md: Metadata(t), msg: String) -> Nil {
 fn log_erlang(level: Level, msg: String, md: Dict(Atom, AttributeSet(t))) -> Nil
 
 @target(javascript)
+/// log a message at the debug level
 pub fn debug(md: Metadata(t), msg: String) -> Nil {
   debug_javascript(Debug, md, msg)
 }
@@ -389,6 +292,7 @@ pub fn debug(md: Metadata(t), msg: String) -> Nil {
 fn debug_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
 
 @target(erlang)
+/// log a message at the info level
 pub fn info(md: Metadata(t), msg: String) -> Nil {
   log_erlang(Info, msg, prepare_metadata_for_erlang(md))
 }
@@ -398,6 +302,7 @@ pub fn info(md: Metadata(t), msg: String) -> Nil {
 fn info_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
 
 @target(javascript)
+/// log a message at the info level
 pub fn info(md: Metadata(t), msg: String) -> Nil {
   info_javascript(Info, md, msg)
 }
@@ -407,6 +312,7 @@ pub fn info(md: Metadata(t), msg: String) -> Nil {
 fn info_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
 
 @target(erlang)
+/// log a message at the warning level
 pub fn warning(md: Metadata(t), msg: String) -> Nil {
   log_erlang(Warning, msg, prepare_metadata_for_erlang(md))
 }
@@ -416,6 +322,7 @@ pub fn warning(md: Metadata(t), msg: String) -> Nil {
 fn warning_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
 
 @target(javascript)
+/// log a message at the warning level
 pub fn warning(md: Metadata(t), msg: String) -> Nil {
   warning_javascript(Warning, md, msg)
 }
@@ -425,6 +332,7 @@ pub fn warning(md: Metadata(t), msg: String) -> Nil {
 fn warning_javascript(level: Level, md: Metadata(t), msg: String) -> Nil
 
 @target(erlang)
+/// log a message at the error level
 pub fn error(md: Metadata(t), msg: String) -> Nil {
   log_erlang(Err, msg, prepare_metadata_for_erlang(md))
 }
@@ -434,6 +342,7 @@ pub fn error(md: Metadata(t), msg: String) -> Nil {
 fn error_erlang(md: Dict(Atom, AttributeSet(t)), msg: String) -> Nil
 
 @target(javascript)
+/// log a message at the error level
 pub fn error(md: Metadata(t), msg: String) -> Nil {
   error_javascript(Err, md, msg)
 }
@@ -474,3 +383,37 @@ fn convert_metadata_to_atom_dict(
 @target(erlang)
 @external(erlang, "comet_ffi", "get_attribute_atom")
 fn attribute_atom(attribute: t) -> Atom
+
+@target(erlang)
+@external(erlang, "logger", "update_handler_config")
+fn update_handler_config_context_erlang(
+  handler id: Atom,
+  config config: Dict(Atom, #(Atom, Dict(Atom, Context(t)))),
+) -> Nil
+
+@target(erlang)
+@external(erlang, "logger", "update_handler_config")
+fn update_handler_config_erlang(
+  handler id: Atom,
+  config config: Dict(Atom, Dynamic),
+) -> Nil
+
+@target(erlang)
+@external(erlang, "logger", "set_handler_config")
+fn set_handler_config_erlang(
+  handler id: Atom,
+  module name: Atom,
+  config map: #(Atom, Dynamic),
+) -> Nil
+
+@target(erlang)
+@external(erlang, "logger", "update_primary_config")
+fn update_primary_config_erlang(config map: Dict(Atom, Dynamic)) -> Nil
+
+// hacky workaround for gleam not supporting target specific type imports
+@target(erlang)
+type Atom =
+  glatom.Atom
+
+type Charlist =
+  charlist.Charlist

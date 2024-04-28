@@ -1,68 +1,72 @@
-let config = {}
-let ctx = {}
-const handlers = {}
+// Configurations and context
+let config = {};
+let ctx = {};
+const handlers = {};
 
-export function add_handler(handler, name) {
-  handlers[name] = handler
+// Exported functions to manage handlers
+export function addHandler(handler, name) {
+  handlers[name] = handler;
 }
 
-export function remove_handler(name) {
-  delete (handlers[name])
+export function removeHandler(name) {
+  delete handlers[name];
 }
 
-export function set_config(context, configuration) {
-  ctx = context
-  config = configuration
+export function setConfig(context, configuration) {
+  ctx = context;
+  config = configuration;
 }
 
-export function debug(level, metadata, message) {
-  log(console.debug, level, message, metadata)
+// Logging functions by severity
+export function debug(...args) {
+  log('debug', ...args);
 }
 
-export function info(level, metadata, message) {
-  log(console.info, level, message, metadata)
+export function info(...args) {
+  log('info', ...args);
 }
 
-export function warning(level, metadata, message) {
-  log(console.warn, level, message, metadata)
+export function warning(...args) {
+  log('warn', ...args);
 }
 
-export function error(level, metadata, message) {
-  log(console.error, level, message, metadata)
+export function error(...args) {
+  log('error', ...args);
 }
 
-function log(fn, level, message, metadata) {
-  if (config.get('level_priority')(level) >= config.get('min_level')) {
-    if (config.get('formatter')) {
-      log_event(ctx, fn, config.get('formatter'), level, message, metadata)
-    } else {
-      fn(message, metadata)
-    }
+// General log function
+function log(method, level, metadata, message) {
+  const logFunction = console[method];
+  const levelPriority = config.get('level_priority')(level);
+  const minLevel = config.get('min_level');
+
+  if (levelPriority >= minLevel) {
+    processLogEntry(ctx, logFunction, level, message, metadata);
   }
+
   Object.values(handlers).forEach(handler => {
-    if (config.get('level_priority')(level) >= handler.get('min_level')) {
-      if (handler.get('formatter')) {
-        log_event(handler.get('ctx'), handler.get('handler'), handler.get('formatter'), level, message, metadata)
-      } else {
-        handler.get('handler')(message)
-      }
+    if (levelPriority >= handler.get('min_level')) {
+      processLogEntry(handler.get('ctx'), handler.get('handler'), level, message, metadata, handler.get('formatter'));
     }
-  })
+  });
 }
 
-function log_event(ctx, fn, formatter, level, message, metadata) {
-  fn(formatter(ctx, { level, message, metadata }))
+// Helper to process each log entry
+function processLogEntry(context, logFunction, level, message, metadata, formatter = config.get('formatter')) {
+  const formattedMessage = formatter ? formatter(context, { level, message, metadata }) : message;
+  logFunction(formattedMessage);
 }
 
-const test_logs = {}
-export function test_handler(name) {
-  test_logs[name] = []
-  return function (msg) {
-    test_logs[name].push(msg)
-  }
+// Test logging functions for unit tests
+const testLogs = {};
+
+export function testHandler(name) {
+  testLogs[name] = [];
+  return function (message) {
+    testLogs[name].push(message);
+  };
 }
 
-export function get_test_logs(name) {
-  return test_logs[name]
+export function getTestLogs(name) {
+  return testLogs[name];
 }
-

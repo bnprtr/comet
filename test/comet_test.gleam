@@ -1,4 +1,5 @@
 import comet.{attribute, attributes, debug, error, info, warning}
+import comet/level.{type Level, Debug, Error, Info, Warning}
 import gleam/dynamic
 import gleam/erlang/process.{type Subject}
 import gleam/io
@@ -9,7 +10,6 @@ import gleam/otp/actor
 import gleam_community/ansi
 import gleeunit
 import gleeunit/should
-import level.{type Level, Debug, Error, Info, Warning}
 
 pub fn main() {
   gleeunit.main()

@@ -1,6 +1,7 @@
 //// Create a gleaming trail of application logs. 
 
 import birl
+import comet/level.{type Level, Debug, Error as Err, Info, Warning, level_text}
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/atom as glatom
@@ -14,7 +15,6 @@ import gleam/result
 import gleam/string
 import gleam/string_builder
 import gleam_community/ansi
-import level.{type Level, Debug, Error as Err, Info, Warning, level_text}
 
 @internal
 pub type AttributeSet(t) {
@@ -196,7 +196,7 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
       let formatter_config =
         dict.new()
         |> dict.insert(atom("formatter"), #(
-          atom("comet_handler"),
+          atom("comet@comet_handler"),
           dict.new()
             |> dict.insert(
             atom("config"),
@@ -296,9 +296,9 @@ pub fn set_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
       )),
     )
     |> dict.insert(atom("id"), dynamic.from(atom(name)))
-    |> dict.insert(atom("module"), dynamic.from(atom("comet_handler")))
+    |> dict.insert(atom("module"), dynamic.from(atom("comet@comet_handler")))
     |> dict.insert(atom("config"), dynamic.from(ctx))
-  add_handler_erlang(atom(name), atom("comet_handler"), config)
+  add_handler_erlang(atom(name), atom("comet@comet_handler"), config)
 }
 
 @target(erlang)

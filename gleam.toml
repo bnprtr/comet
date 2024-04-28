@@ -1,6 +1,7 @@
 name = "comet"
-version = "0.2.0"
+version = "0.2.1"
 description = "Create a gleaming trail of application logs"
+internal_modules = ["gleam/gleam_handler"]
 licences = ["MIT"]
 repository = { type = "github", user = "bnprtr", repo = "comet" }
 gleam = ">= 0.32.0"

@@ -3,6 +3,7 @@ import gleam/dynamic
 import gleam/erlang/process.{type Subject}
 import gleam/io
 import gleam/javascript/array
+import gleam/json
 import gleam/list
 import gleam/otp/actor
 import gleeunit
@@ -19,6 +20,16 @@ type Attribute {
   StatusCode(Int)
   Success(Bool)
   AnError(String)
+}
+
+fn attribute_serializer(a: Attribute) -> #(String, json.Json) {
+  case a {
+    Service(value) -> #("service", json.string(value))
+    Latency(value) -> #("latency", json.float(value))
+    StatusCode(value) -> #("statusCode", json.int(value))
+    Success(value) -> #("success", json.bool(value))
+    AnError(value) -> #("error", json.string(value))
+  }
 }
 
 // todo: tests were removed since log handlers are not yet implemented.
@@ -182,6 +193,27 @@ pub fn formatter_test() {
   |> error("something else")
 
   should.equal(get_logs(logs), ["-- something", "-- something else"])
+  close(logs)
+}
+
+pub fn json_test() {
+  let logs =
+    comet.new()
+    |> comet.with_formatter(comet.json_formatter(attribute_serializer))
+    |> test_handler("json_test")
+
+  comet.log()
+  |> attributes([Service("comet"), Success(True)])
+  |> info("a thing")
+
+  comet.log()
+  |> attribute(AnError("access denied"))
+  |> error("a bad thing")
+
+  should.equal(get_logs(logs), [
+    "{\"msg\":\"a thing\",\"level\":\"info\",\"service\":\"comet\",\"success\":true}",
+    "{\"msg\":\"a bad thing\",\"level\":\"error\",\"error\":\"access denied\"}",
+  ])
   close(logs)
 }
 

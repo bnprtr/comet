@@ -10,6 +10,8 @@ import gleam/option.{None, Some}
 import gleam/result
 import level.{type Level, Debug, Error as Err, Info, Warning}
 
+const comet_metadata_stash_key = "comet metadata stash key"
+
 @target(erlang)
 pub fn atom(name: String) -> Atom {
   case atom_from_string(name) {
@@ -85,7 +87,7 @@ fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> List(t) {
     Ok(value) ->
       case dynamic.dict(atom_from_dynamic, dynamic.dynamic)(value) {
         Ok(md) ->
-          case dict.get(md, atom(comet.comet_metadata_stash_key)) {
+          case dict.get(md, atom(comet_metadata_stash_key)) {
             Ok(data) ->
               case dynamic.unsafe_coerce(data) {
                 comet.CometAttributeList(data) -> data

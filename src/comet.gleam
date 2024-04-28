@@ -1,5 +1,6 @@
 //// Create a gleaming trail of application logs. 
 
+import birl
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/atom as glatom
@@ -11,6 +12,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import gleam/string_builder
+import gleam_community/ansi
 import level.{type Level, Debug, Error as Err, Info, Warning, level_text}
 
 @internal
@@ -30,7 +33,7 @@ pub type AttributeSet(t) {
   CometAttributeList(List(t))
 }
 
-pub const comet_metadata_stash_key = "comet metadata stash key"
+const comet_metadata_stash_key = "comet metadata stash key"
 
 /// Formatter is called by the logger to format the log entry into a string before it is sent to the
 /// log handler. The formatter is passed the context and the log entry and should return a string.
@@ -46,6 +49,7 @@ pub opaque type Context(t) {
     formatter: Option(Formatter(t)),
     min_level: Level,
     handler: Option(Handler),
+    timestamp: Bool,
   )
 }
 
@@ -62,7 +66,7 @@ pub fn configure(ctx: Context(t)) -> Context(t) {
 /// - formatter: None (uses the backend default formatter)
 /// - min_level: Info
 pub fn new() -> Context(t) {
-  Context(level_text, None, Info, None)
+  Context(level_text, None, Info, None, True)
 }
 
 /// LevelTextFn can be provided to the log context to override the level names in logs
@@ -86,11 +90,46 @@ pub type Entry(t) {
 pub type Handler =
   fn(String) -> Nil
 
+fn label_color(str: String) -> String {
+  str
+  |> ansi.bold
+  |> ansi.dim
+  |> ansi.pink
+}
+
+fn value_color(str: String) -> String {
+  str
+  |> ansi.magenta
+}
+
 /// This is the standard text formatter for logs. It will format the log entry into a string
 pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
   let Entry(level, msg, md) = entry
-  ["level:", ctx.level_text(level), "|", string.inspect(md), "|", msg]
-  |> string.join(" ")
+  string_builder.new()
+  |> string_builder.append(label_color("level"))
+  |> string_builder.append("=")
+  |> string_builder.append(ctx.level_text(level))
+  |> maybe_add_timestamp_text(ctx)
+  |> string_builder.append(label_color(" attributes"))
+  |> string_builder.append("=")
+  |> string_builder.append(value_color(string.inspect(md)))
+  |> string_builder.append(label_color(" msg"))
+  |> string_builder.append("=")
+  |> string_builder.append(ansi.pink(msg))
+  |> string_builder.to_string
+}
+
+fn maybe_add_timestamp_text(
+  builder: string_builder.StringBuilder,
+  ctx: Context(t),
+) -> string_builder.StringBuilder {
+  case ctx.timestamp {
+    False -> builder
+    True ->
+      string_builder.append(builder, label_color(" time"))
+      |> string_builder.append("=")
+      |> string_builder.append(value_color(birl.to_iso8601(birl.now())))
+  }
 }
 
 pub type AttributeJsonSerializer(t) =
@@ -100,9 +139,21 @@ pub fn json_formatter(serializer: AttributeJsonSerializer(t)) -> Formatter(t) {
   fn(ctx: Context(t), entry: Entry(t)) -> String {
     list.map(entry.metadata, serializer)
     |> list.prepend(#("level", json.string(ctx.level_text(entry.level))))
+    |> maybe_add_timestamp_json(ctx)
     |> list.prepend(#("msg", json.string(entry.message)))
     |> json.object
     |> json.to_string
+  }
+}
+
+fn maybe_add_timestamp_json(
+  md: List(#(String, json.Json)),
+  ctx: Context(t),
+) -> List(#(String, json.Json)) {
+  case ctx.timestamp {
+    False -> md
+    True ->
+      list.prepend(md, #("time", json.string(birl.to_iso8601(birl.now()))))
   }
 }
 
@@ -138,9 +189,7 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
               |> dict.insert(atom("legacy_header"), dynamic.from(False)),
           )),
         )
-
       update_handler_config_erlang(atom("default"), formatter_config)
-
       ctx
     }
     Some(formatter) -> {
@@ -149,9 +198,18 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
         |> dict.insert(atom("formatter"), #(
           atom("comet_handler"),
           dict.new()
-            |> dict.insert(atom("config"), ctx),
+            |> dict.insert(
+            atom("config"),
+            // erlang logger doesn't add new lines by deafult so we need to wrap the formatter
+            // to append new lines
+            Context(
+              ..ctx,
+              formatter: Some(fn(ctx: Context(t), entry: Entry(t)) -> String {
+                formatter(ctx, entry) <> "\n"
+              }),
+            ),
+          ),
         ))
-
       update_handler_config_context_erlang(atom("default"), formatter_config)
       ctx
     }
@@ -165,6 +223,7 @@ fn initialize_context(log ctx: Context(t)) -> Context(t) {
     |> map.set("min_level", dynamic.from(level.level_priority(ctx.min_level)))
     |> map.set("formatter", dynamic.from(ctx.formatter))
     |> map.set("level_priority", dynamic.from(level.level_priority))
+    |> map.set("timestamp", dynamic.from(ctx.timestamp))
 
   let config = case ctx.formatter {
     None -> config
@@ -205,6 +264,11 @@ pub fn with_formatter(ctx: Context(t), formatter: Formatter(t)) -> Context(t) {
 /// set the log level for the logger
 pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
+}
+
+/// togle timestamps
+pub fn timestamp(ctx: Context(t), active: Bool) -> Context(t) {
+  Context(..ctx, timestamp: active)
 }
 
 pub fn get_handler(ctx: Context(t)) -> Option(Handler) {
@@ -254,6 +318,7 @@ pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
     |> map.set("level_priority", dynamic.from(level.level_priority))
     |> map.set("handler", dynamic.from(handler))
     |> map.set("ctx", dynamic.from(ctx))
+    |> map.set("timestamp", dynamic.from(ctx.timestamp))
   case ctx.formatter {
     None -> config
     Some(formatter) -> map.set(config, "formatter", dynamic.from(formatter))

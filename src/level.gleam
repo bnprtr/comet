@@ -1,4 +1,5 @@
-// Level ---------------------------------------------------------------------------
+import gleam_community/ansi
+
 pub fn level_priority(level: Level) -> Int {
   case level {
     Debug -> 1
@@ -21,5 +22,14 @@ pub fn level_text(level: Level) -> String {
     Info -> "info"
     Warning -> "warn"
     Error -> "error"
+  }
+}
+
+pub fn level_text_ansi(level: Level) -> String {
+  case level {
+    Debug -> ansi.green("debug")
+    Info -> ansi.blue("info")
+    Warning -> ansi.yellow("warn")
+    Error -> ansi.red("error")
   }
 }

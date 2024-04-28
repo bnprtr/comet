@@ -2,18 +2,22 @@
 
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
-import gleam/erlang/atom.{
-  type Atom, create_from_string as create_atom_from_string,
-  from_dynamic as atom_from_dynamic, from_string as atom_from_string,
-  to_string as atom_to_string,
-} as _
-import gleam/erlang/charlist.{type Charlist, to_string as charlist_to_string}
+import gleam/erlang/atom as glatom
+import gleam/erlang/charlist
 import gleam/io
+import gleam/javascript/map
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import level.{type Level, Debug, Error as Err, Info, Warning, level_text}
+
+@target(erlang)
+type Atom =
+  glatom.Atom
+
+type Charlist =
+  charlist.Charlist
 
 pub type AttributeSet(t) {
 
@@ -63,6 +67,7 @@ pub type Entry(t) {
 pub type Handler =
   fn(String) -> Nil
 
+@target(erlang)
 pub fn extract_context_from_config(config: Dict(Atom, Context(t))) -> Context(t) {
   case dict.get(config, atom("config")) {
     Ok(ctx) -> ctx
@@ -90,7 +95,7 @@ pub fn extract_entry_from_erlang_log_event(log: Dict(Atom, Dynamic)) -> Entry(t)
 fn extract_metadata_from_erlang_log(log: Dict(Atom, Dynamic)) -> List(t) {
   case dict.get(log, atom("meta")) {
     Ok(value) ->
-      case dynamic.dict(atom_from_dynamic, dynamic.dynamic)(value) {
+      case dynamic.dict(glatom.from_dynamic, dynamic.dynamic)(value) {
         Ok(md) ->
           case dict.get(md, atom(comet_metadata_stash_key)) {
             Ok(data) ->
@@ -117,9 +122,9 @@ fn extract_level_from_erlang_log(log: Dict(Atom, Dynamic)) -> Level {
 
 @target(erlang)
 fn decode_level(value: Dynamic) -> Level {
-  case atom_from_dynamic(value) {
+  case glatom.from_dynamic(value) {
     Ok(level) -> {
-      case atom_to_string(level) {
+      case glatom.to_string(level) {
         "debug" -> Debug
         "info" -> Info
         "warning" -> Warning
@@ -137,7 +142,7 @@ fn extract_msg_from_erlang_log(log: Dict(Atom, Dynamic)) -> String {
     Ok(value) ->
       case
         result.try(
-          dynamic.tuple2(atom_from_dynamic, dynamic.string)(value),
+          dynamic.tuple2(glatom.from_dynamic, dynamic.string)(value),
           fn(a: #(Atom, String)) { Ok(a.1) },
         )
       {
@@ -165,27 +170,24 @@ fn prepare_erlang_handler_config(ctx: Context(t)) -> Dict(Atom, Dynamic) {
   |> dict.insert(atom("metadata"), dynamic.from(dict.new()))
 }
 
-// #(Formatter, LoggerFormatter(dict.from_list([#(SingleLine, False), #(LegacyHeader, True)])))])])
 @target(erlang)
 fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
   case ctx.formatter {
     None -> {
       let formatter_config =
         dict.new()
-        |> dict.insert(atom("formatter"), #(
-          atom("logger_formatter"),
-          dict.new()
-            |> dict.insert(
-            atom("config"),
-            dynamic.from(
-              dict.new()
-              |> dict.insert(atom("single_line"), False)
-              |> dict.insert(atom("legacy_header"), True),
-            ),
-          ),
-        ))
+        |> dict.insert(
+          atom("formatter"),
+          dynamic.from(#(
+            atom("logger_formatter"),
+            dict.new()
+              |> dict.insert(atom("single_line"), dynamic.from(True))
+              |> dict.insert(atom("legacy_header"), dynamic.from(False)),
+          )),
+        )
 
       update_handler_config_erlang(atom("default"), formatter_config)
+
       ctx
     }
     Some(formatter) -> {
@@ -205,33 +207,51 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
 
 @target(javascript)
 fn initialize_context(log ctx: Context(t)) -> Context(t) {
-  set_config_javascript(ctx)
+  let config =
+    map.new()
+    |> map.set("min_level", dynamic.from(level.level_priority(ctx.min_level)))
+    |> map.set("formatter", dynamic.from(ctx.formatter))
+    |> map.set("level_priority", dynamic.from(level.level_priority))
+
+  let config = case ctx.formatter {
+    None -> config
+    Some(formatter) -> {
+      map.set(config, "formatter", dynamic.from(formatter))
+    }
+  }
+  set_config_javascript(ctx, config)
   ctx
 }
 
 @external(javascript, "./logs.mjs", "set_config")
-fn set_config_javascript(config: Dict(Atom, Dynamic)) -> Nil
+fn set_config_javascript(
+  config: Context(t),
+  configuration: map.Map(string, Dynamic),
+) -> Nil
 
 @target(erlang)
 pub fn atom(name: String) -> Atom {
-  case atom_from_string(name) {
+  case glatom.from_string(name) {
     Ok(a) -> a
-    _ -> create_atom_from_string(name)
+    _ -> glatom.create_from_string(name)
   }
 }
 
+@target(erlang)
 @external(erlang, "logger", "update_handler_config")
 fn update_handler_config_context_erlang(
   handler id: Atom,
   config config: Dict(Atom, #(Atom, Dict(Atom, Context(t)))),
 ) -> Nil
 
+@target(erlang)
 @external(erlang, "logger", "update_handler_config")
 fn update_handler_config_erlang(
   handler id: Atom,
-  config config: Dict(Atom, #(Atom, Dict(Atom, Dynamic))),
+  config config: Dict(Atom, Dynamic),
 ) -> Nil
 
+@target(erlang)
 @external(erlang, "logger", "set_handler_config")
 fn set_handler_config_erlang(
   handler id: Atom,
@@ -245,6 +265,7 @@ fn set_handler_config_erlang(
 //    filters => [],
 //    metadata => #{}
 //  }),
+@target(erlang)
 @external(erlang, "logger", "update_primary_config")
 fn update_primary_config_erlang(config map: Dict(Atom, Dynamic)) -> Nil
 
@@ -291,12 +312,31 @@ pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
 //     formatter => {comet, [#{config => Handler}]},
 //     metadata => #{}
 // }),
+@target(erlang)
 @external(erlang, "logger", "add_handler")
 fn add_handler_erlang(
   name: Atom,
   module: Atom,
   config: Dict(Atom, Dynamic),
 ) -> Nil
+
+@target(javascript)
+pub fn add_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
+  let config =
+    map.new()
+    |> map.set("min_level", dynamic.from(level.level_priority(ctx.min_level)))
+    |> map.set("level_priority", dynamic.from(level.level_priority))
+    |> map.set("handler", dynamic.from(handler))
+    |> map.set("ctx", dynamic.from(ctx))
+  case ctx.formatter {
+    None -> config
+    Some(formatter) -> map.set(config, "formatter", dynamic.from(formatter))
+  }
+  |> add_handler_js(name)
+}
+
+@external(javascript, "./logs.mjs", "add_handler")
+fn add_handler_js(config: map.Map(string, Dynamic), name: String) -> Nil
 
 // Metadata ---------------------------------------------------------------------------
 

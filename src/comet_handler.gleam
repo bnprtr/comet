@@ -1,4 +1,4 @@
-import comet.{type Context, Context, extract_entry_from_erlang_log_event, new}
+import comet.{type Context, Context, new}
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang/atom.{
@@ -6,9 +6,7 @@ import gleam/erlang/atom.{
   from_string as atom_from_string,
 } as _
 import gleam/erlang/charlist.{type Charlist}
-import gleam/io
 import gleam/option.{None, Some}
-import gleam/string
 
 @target(erlang)
 pub fn atom(name: String) -> Atom {
@@ -34,7 +32,7 @@ pub fn log(event: LogEvent, config: Config(t)) -> Nil {
     Some(handler) -> handler
     None -> panic
   }
-  let entry = extract_entry_from_erlang_log_event(event)
+  let entry = comet.extract_entry_from_erlang_log_event(event)
   let formatted = case ctx.formatter {
     None ->
       logger_format_erlang(event, config)
@@ -44,5 +42,6 @@ pub fn log(event: LogEvent, config: Config(t)) -> Nil {
   handler(formatted)
 }
 
+@target(erlang)
 @external(erlang, "logger_formatter", "format")
 fn logger_format_erlang(log event: LogEvent, config map: Config(t)) -> Charlist

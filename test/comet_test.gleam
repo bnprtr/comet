@@ -1,5 +1,8 @@
 import comet.{attribute, attributes, debug, error, info, warning}
+import gleam/dynamic
 import gleam/erlang/process.{type Subject}
+import gleam/io
+import gleam/javascript/array
 import gleam/list
 import gleam/otp/actor
 import gleeunit
@@ -44,19 +47,19 @@ pub fn metadata_test() {
   |> warning("access log")
 
   log
-  |> attribute(Latency(402.0))
+  |> attribute(Latency(402.1))
   |> attribute(StatusCode(500))
   |> attribute(AnError("database connection error"))
   |> attribute(Success(False))
   |> error("access log")
 
-  should.equal(process.call(logs, Get, 200), [
+  should.equal(get_logs(logs), [
     "level: debug | [Service(\"comet\")] | did this work? hi mom",
     "level: info | [Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] | access log",
     "level: warn | [Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] | access log",
-    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.0), Service(\"comet\")] | access log",
+    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] | access log",
   ])
-  process.send(logs, Close)
+  close(logs)
 }
 
 pub fn multi_handler_test() {
@@ -89,24 +92,24 @@ pub fn multi_handler_test() {
   |> warning("access log")
 
   log
-  |> attribute(Latency(402.0))
+  |> attribute(Latency(402.1))
   |> attribute(StatusCode(500))
   |> attribute(AnError("database connection error"))
   |> attribute(Success(False))
   |> error("access log")
 
-  should.equal(process.call(logs, Get, 200), [
+  should.equal(get_logs(logs), [
     "level: debug | [Service(\"comet\")] | did this work? hi mom",
     "level: info | [Service(\"comet\"), Latency(24.2), StatusCode(200), Success(True)] | access log",
     "level: warn | [Success(False), AnError(\"input not accepted\"), StatusCode(400), Latency(102.2), Service(\"comet\")] | access log",
-    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.0), Service(\"comet\")] | access log",
+    "level: error | [Success(False), AnError(\"database connection error\"), StatusCode(500), Latency(402.1), Service(\"comet\")] | access log",
   ])
 
-  should.equal(process.call(logs2, Get, 200), [
+  should.equal(get_logs(logs2), [
     "-- access log", "-- access log", "-- access log",
   ])
-  process.send(logs, Close)
-  process.send(logs2, Close)
+  close(logs)
+  close(logs2)
 }
 
 fn levels(level: Level) -> String {
@@ -140,11 +143,11 @@ pub fn level_text_test() {
   log
   |> error("should be ERR")
 
-  should.equal(process.call(logs, Get, 200), [
+  should.equal(get_logs(logs), [
     "level: DEBG | [] | should be DEBG", "level: INFO | [] | should be INFO",
     "level: WARN | [] | should be WARN", "level: Error | [] | should be ERR",
   ])
-  process.send(logs, Close)
+  close(logs)
 }
 
 fn formatter(_, entry: comet.Entry(Attribute)) {
@@ -179,12 +182,11 @@ pub fn formatter_test() {
   log
   |> error("something else")
 
-  should.equal(process.call(logs, Get, 200), [
-    "-- something", "-- something else",
-  ])
-  process.send(logs, Close)
+  should.equal(get_logs(logs), ["-- something", "-- something else"])
+  close(logs)
 }
 
+@target(erlang)
 fn log_handler() -> Subject(Message) {
   let assert Ok(pid) =
     actor.start([], fn(msg: Message, logs: List(String)) -> actor.Next(
@@ -203,6 +205,7 @@ fn log_handler() -> Subject(Message) {
   pid
 }
 
+@target(erlang)
 fn test_configure(
   ctx: comet.Context(Attribute),
   name: String,
@@ -212,6 +215,34 @@ fn test_configure(
   |> test_handler(name)
 }
 
+@target(javascript)
+fn test_configure(ctx: comet.Context(Attribute), name: String) -> String {
+  ctx
+  |> comet.with_formatter(comet.text_formatter)
+  |> comet.configure
+  |> comet.add_handler(name, test_handler_js(name))
+  name
+}
+
+@target(erlang)
+fn get_logs(logs: Subject(Message)) -> List(String) {
+  process.call(logs, Get, 200)
+}
+
+@target(javascript)
+fn close(name) {
+  remove_handler(name)
+}
+
+@external(javascript, "./logs.mjs", "remove_handler")
+fn remove_handler(name: String) -> Nil
+
+@target(erlang)
+fn close(logs) {
+  process.send(logs, Close)
+}
+
+@target(erlang)
 fn test_handler(ctx: comet.Context(Attribute), name: String) -> Subject(Message) {
   let handler = log_handler()
   comet.add_handler(ctx, name, fn(data: String) {
@@ -220,3 +251,23 @@ fn test_handler(ctx: comet.Context(Attribute), name: String) -> Subject(Message)
   })
   handler
 }
+
+@target(javascript)
+fn test_handler(ctx: comet.Context(Attribute), name: String) -> String {
+  ctx
+  |> comet.add_handler(name, test_handler_js(name))
+  name
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "test_handler")
+fn test_handler_js(msg: String) -> comet.Handler
+
+@target(javascript)
+fn get_logs(name: String) -> List(String) {
+  array.to_list(get_logs_js(name))
+}
+
+@target(javascript)
+@external(javascript, "./logs.mjs", "get_test_logs")
+fn get_logs_js(name: String) -> array.Array(String)

@@ -5,19 +5,7 @@
 
 ✨Create a gleaming trail of application logs✨
 
-## Status
-In Progress:
-- Logging interface: Proposed
-- Erlang logging operational
-- Javascript logging operational
-
-Not Started:
-- Log Filters
-- Log Handlers
-- Improved output formatting
-- JSON output
-- Field customization
-- Documentation
+The API of this library is still unstable. Be aware that it will change before stabilizing.
 
 ## Usage
 
@@ -25,7 +13,7 @@ Not Started:
 gleam add comet
 ```
 ```gleam
-import comet.{attribute}
+import comet.{attribute, Debug}
 
 type LogAttribute {
   Service(String)
@@ -38,7 +26,7 @@ type LogAttribute {
 pub fn main() {
   // intitialize the underlying logger settings
   comet.new()
-  |> comet.level(Info)
+  |> comet.level(Debug)
   |> comet.configure()
 
   let log = comet.log()

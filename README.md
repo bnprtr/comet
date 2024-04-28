@@ -14,7 +14,7 @@ gleam add comet
 ```
 ```gleam
 import comet.{attribute, Debug}
-
+  
 type LogAttribute {
   Service(String)
   Latency(Float)
@@ -27,7 +27,7 @@ pub fn main() {
   // intitialize the underlying logger settings
   comet.new()
   |> comet.level(Debug)
-  |> comet.configure()
+  |> comet.configure
 
   let log = comet.log()
     |> attribute(Service("comet"))
@@ -70,6 +70,14 @@ level: error | [Success(False), Err("database connection error"), StatusCode(500
 import comet.{info}
 import gleam/json
 
+// Note: It's recommended to create a single Attribute Type for your application that contains
+// all necessary records for attributes, otherwise it will be impossible to serialize
+// fields for structured logging.
+type LogAttribute {
+  Service(String)
+  Success(Bool)
+}
+
 fn attribute_serializer(a: Attribute) -> #(String, json.Json) {
   case a {
     Service(value) -> #("service", json.string(value))
@@ -81,15 +89,19 @@ fn attribute_serializer(a: Attribute) -> #(String, json.Json) {
 }
 
 fn main() {
-let logs =
-    comet.new()
-    |> comet.with_formatter(comet.json_formatter(attribute_serializer))
-    |> test_handler("json_test")
+  comet.new()
+  |> comet.with_formatter(comet.json_formatter(attribute_serializer))
+  |> configure
 
   comet.log()
   |> attributes([Service("comet"), Success(True)])
-  |> info("a thing")
+  |> info("Halley's Comet returns in 2061")
 }
+```
+
+will output the logs:
+```json
+"{"msg":"a thing","level":"info","service":"comet","success":true}"
 ```
 Further documentation can be found at <https://hexdocs.pm/comet>.
 

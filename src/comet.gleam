@@ -48,6 +48,7 @@ pub opaque type Context(t) {
     level_text: LevelTextFn,
     formatter: Option(Formatter(t)),
     min_level: Level,
+    color_fn: ColorFn,
     handler: Option(Handler),
     timestamp: Bool,
   )
@@ -66,7 +67,7 @@ pub fn configure(ctx: Context(t)) -> Context(t) {
 /// - formatter: None (uses the backend default formatter)
 /// - min_level: Info
 pub fn new() -> Context(t) {
-  Context(level_text, None, Info, None, True)
+  Context(level_text, None, Info, colorize, None, True)
 }
 
 /// LevelTextFn can be provided to the log context to override the level names in logs
@@ -90,32 +91,54 @@ pub type Entry(t) {
 pub type Handler =
   fn(String) -> Nil
 
-fn label_color(str: String) -> String {
-  str
-  |> ansi.bold
-  |> ansi.dim
-  |> ansi.pink
+pub type ColorFn =
+  fn(Segment, String) -> String
+
+pub type Segment {
+  Message
+  Value
+  Label
 }
 
-fn value_color(str: String) -> String {
-  str
-  |> ansi.magenta
+/// ColorFn that doesn't colorize the text.
+pub fn color_plain(segment: Segment, value: String) -> String {
+  value
+}
+
+/// default ColorFn
+pub fn colorize(segment: Segment, value: String) -> String {
+  case segment {
+    Label -> {
+      value
+      |> ansi.bold
+      |> ansi.dim
+      |> ansi.pink
+    }
+    Value -> {
+      value
+      |> ansi.magenta
+    }
+    Message -> {
+      value
+      |> ansi.pink
+    }
+  }
 }
 
 /// This is the standard text formatter for logs. It will format the log entry into a string
 pub fn text_formatter(ctx: Context(t), entry: Entry(t)) -> String {
   let Entry(level, msg, md) = entry
   string_builder.new()
-  |> string_builder.append(label_color("level"))
+  |> string_builder.append(ctx.color_fn(Label, "level"))
   |> string_builder.append("=")
   |> string_builder.append(ctx.level_text(level))
   |> maybe_add_timestamp_text(ctx)
-  |> string_builder.append(label_color(" attributes"))
+  |> string_builder.append(ctx.color_fn(Label, " attributes"))
   |> string_builder.append("=")
-  |> string_builder.append(value_color(string.inspect(md)))
-  |> string_builder.append(label_color(" msg"))
+  |> string_builder.append(ctx.color_fn(Value, string.inspect(md)))
+  |> string_builder.append(ctx.color_fn(Label, " msg"))
   |> string_builder.append("=")
-  |> string_builder.append(ansi.pink(msg))
+  |> string_builder.append(ctx.color_fn(Message, msg))
   |> string_builder.to_string
 }
 
@@ -126,9 +149,9 @@ fn maybe_add_timestamp_text(
   case ctx.timestamp {
     False -> builder
     True ->
-      string_builder.append(builder, label_color(" time"))
+      string_builder.append(builder, ctx.color_fn(Label, " time"))
       |> string_builder.append("=")
-      |> string_builder.append(value_color(birl.to_iso8601(birl.now())))
+      |> string_builder.append(ctx.color_fn(Value, birl.to_iso8601(birl.now())))
   }
 }
 
@@ -266,7 +289,12 @@ pub fn with_level(ctx: Context(t), level: Level) -> Context(t) {
   Context(..ctx, min_level: level)
 }
 
-/// togle timestamps
+/// set the text color function for the logger.
+pub fn with_color_fn(ctx: Context(t), func: ColorFn) -> Context(t) {
+  Context(..ctx, color_fn: func)
+}
+
+/// toggle timestamps
 pub fn timestamp(ctx: Context(t), active: Bool) -> Context(t) {
   Context(..ctx, timestamp: active)
 }

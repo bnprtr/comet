@@ -28,6 +28,7 @@ pub fn main() {
   // intitialize the underlying logger settings
   comet.new()
   |> comet.level(Debug)
+  |> comet.with_color_fn(comet.color_plain)
   |> comet.configure
 
   let log = comet.log()

@@ -219,7 +219,7 @@ fn maybe_add_formatter_to_context(ctx: Context(t)) -> Context(t) {
       let formatter_config =
         dict.new()
         |> dict.insert(atom("formatter"), #(
-          atom("comet@comet_handler"),
+          atom("comet@internal@comet_handler"),
           dict.new()
             |> dict.insert(
             atom("config"),
@@ -324,9 +324,12 @@ pub fn set_handler(ctx: Context(t), name: String, handler: Handler) -> Nil {
       )),
     )
     |> dict.insert(atom("id"), dynamic.from(atom(name)))
-    |> dict.insert(atom("module"), dynamic.from(atom("comet@comet_handler")))
+    |> dict.insert(
+      atom("module"),
+      dynamic.from(atom("comet@internal@comet_handler")),
+    )
     |> dict.insert(atom("config"), dynamic.from(ctx))
-  add_handler_erlang(atom(name), atom("comet@comet_handler"), config)
+  add_handler_erlang(atom(name), atom("comet@internal@comet_handler"), config)
 }
 
 @target(erlang)

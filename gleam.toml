@@ -1,5 +1,5 @@
 name = "comet"
-version = "0.2.1"
+version = "0.2.2"
 description = "Create a gleaming trail of application logs"
 internal_modules = ["comet/internal/**/*"]
 licences = ["MIT"]

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/bnprtr/comet/compare/v0.2.1...v0.2.2) (2024-05-04)
+
+
+### Bug Fixes
+
+* javascript console logging improved with text colorizer function ([#22](https://github.com/bnprtr/comet/issues/22)) ([f02fbda](https://github.com/bnprtr/comet/commit/f02fbda1ec5daf2bf27fb2bf17f7741a3298d96e))
+* update internal modules so they aren't rendered on docs ([#24](https://github.com/bnprtr/comet/issues/24)) ([929e4cf](https://github.com/bnprtr/comet/commit/929e4cfe6b00171b44ec954dbfe6dbca596aa205))
+
 ## [0.2.1](https://github.com/bnprtr/comet/compare/v0.2.0...v0.2.1) (2024-04-28)
 
 
